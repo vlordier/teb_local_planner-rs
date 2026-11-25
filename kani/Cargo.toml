@@ -7,3 +7,9 @@ publish = false
 [dependencies]
 nav-core = { path = "../crates/nav-core" }
 nav-trajectory = { path = "../crates/nav-trajectory" }
+
+[package.metadata.kani.unstable]
+unstable-options = true
+
+[package.metadata.kani.flags]
+cbmc-args = ["--no-built-in-assertions"]

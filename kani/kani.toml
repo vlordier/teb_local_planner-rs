@@ -1,3 +1,5 @@
-[default]
-args = ["--disable-cbmc-assertions"]
-kani_version = "0.67"
+[kani]
+kani_version = "0.68"
+
+[kani.flags]
+cbmc-args = ["--no-built-in-assertions"]
