@@ -1,7 +1,7 @@
 extern "C" {
     fn pose_se2_new(x: f64, y: f64, theta: f64, px: *mut f64, py: *mut f64, ptheta: *mut f64);
     fn pose_se2_add(x1: f64, y1: f64, t1: f64, x2: f64, y2: f64, t2: f64, px: *mut f64, py: *mut f64, ptheta: *mut f64);
-    fn normalize_angle(angle: f64) -> f64;
+    fn c_normalize_angle(angle: f64) -> f64;
 }
 
 pub fn pose_se2_x(x: f64, y: f64, theta: f64) -> f64 {
@@ -52,7 +52,11 @@ pub fn pose_se2_add_theta(x1: f64, y1: f64, t1: f64, x2: f64, y2: f64, t2: f64) 
     ptheta
 }
 
-
 pub fn normalize_angle_c(angle: f64) -> f64 {
-    unsafe { normalize_angle(angle) }
+    unsafe { c_normalize_angle(angle) }
+}
+
+/// Public safe wrapper for the C++ normalize_angle FFI.
+pub fn normalize_angle(angle: f64) -> f64 {
+    unsafe { c_normalize_angle(angle) }
 }

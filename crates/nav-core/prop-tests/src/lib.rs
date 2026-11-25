@@ -214,3 +214,42 @@ mod trajectory_prop {
         }
     }
 }
+// ── Adversarial: near-zero and denormal edge cases ─────────────────────────
+
+proptest! {
+    #[test]
+    fn prop_normalize_angle_near_zero(a in -0.001..0.001f64) {
+        use nav_core::misc::normalize_angle;
+        let result = normalize_angle(a);
+        assert!(result.is_finite());
+        assert!(result >= -std::f64::consts::PI && result <= std::f64::consts::PI);
+    }
+
+    #[test]
+    fn prop_normalize_angle_boundaries(
+        a in -10.0..10.0f64
+    ) {
+        use nav_core::misc::normalize_angle;
+        let result = normalize_angle(a);
+        // If finite, must be in [-pi, pi]
+        if result.is_finite() {
+            assert!(result > -std::f64::consts::PI - 1e-12 && result < std::f64::consts::PI + 1e-12);
+        }
+    }
+
+    #[test]
+    fn prop_pose_se2_inverse_is_inverse(
+        x in -100.0..100.0f64,
+        y in -100.0..100.0f64,
+        theta in -10.0..10.0f64
+    ) {
+        use nav_core::PoseSE2;
+        let p = PoseSE2::new(x, y, theta);
+        let inv = p.inverted();
+        let restored = inv.add(&p);
+        // Result should be zero (identity)
+        assert!((restored.x()).abs() < 1e-10);
+        assert!((restored.y()).abs() < 1e-10);
+        assert!((restored.theta()).abs() < 1e-10);
+    }
+}

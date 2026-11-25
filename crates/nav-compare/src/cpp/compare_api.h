@@ -15,7 +15,7 @@ void pose_se2_add(double x1, double y1, double t1,
                   double* px, double* py, double* ptheta);
 
 // normalize_angle (mimics g2o::normalize_theta)
-double normalize_angle(double angle);
+double c_normalize_angle(double angle);
 
 #ifdef __cplusplus
 }

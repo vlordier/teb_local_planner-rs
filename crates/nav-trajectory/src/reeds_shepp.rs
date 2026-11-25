@@ -55,7 +55,7 @@ pub struct RSParameters {
 }
 
 impl RSParameters {
-    fn new(segments: Vec<RSSegment>, path_type: RSPathType) -> Self {
+    pub fn new(segments: Vec<RSSegment>, path_type: RSPathType) -> Self {
         let tl = segments.iter().map(|s| s.length.abs()).sum();
         RSParameters { segments, path_type, total_length: tl }
     }

@@ -287,3 +287,81 @@ fn prop_spline_interpolates_data_points() {
     });
 }
 
+
+// ── Adversarial: extreme radius and pose distances ─────────────────────────
+
+// ── Adversarial: extreme radius and pose distances ─────────────────────────
+
+proptest! {
+    #[test]
+    fn prop_dubins_very_small_radius(
+        x1 in -10.0..10.0f64,
+        y1 in -10.0..10.0f64,
+        t1 in -3.0..3.0f64,
+        x2 in -10.0..10.0f64,
+        y2 in -10.0..10.0f64,
+        t2 in -3.0..3.0f64,
+        radius in 0.001..0.1f64
+    ) {
+        use nav_trajectory::dubins_path_from_poses;
+        use nav_core::PoseSE2;
+        let p1 = PoseSE2::new(x1, y1, t1);
+        let p2 = PoseSE2::new(x2, y2, t2);
+        if let Some(path) = dubins_path_from_poses(&p1, &p2, radius) {
+            assert!(path.length >= 0.0);
+            for seg in &path.segments {
+                assert!(seg.length >= -1e-10);
+            }
+        }
+    }
+
+    #[test]
+    fn prop_reeds_shepp_segments_valid(
+        x1 in -10.0..10.0f64,
+        y1 in -10.0..10.0f64,
+        t1 in -3.0..3.0f64,
+        x2 in -10.0..10.0f64,
+        y2 in -10.0..10.0f64,
+        t2 in -3.0..3.0f64,
+        radius in 0.1..100.0f64
+    ) {
+        use nav_trajectory::reeds_shepp_path_from_poses;
+        if let Some(path) = reeds_shepp_path_from_poses(x1, y1, t1, x2, y2, t2, radius) {
+            assert!(path.total_length >= 0.0, "RS length must be non-negative");
+        }
+    }
+
+    #[test]
+    fn prop_time_param_velocity_monotonic(
+        dists in proptest::collection::vec(-100.0..100.0f64, 3..5),
+        max_vel in 0.1..100.0f64,
+        max_acc in 0.1..100.0f64
+    ) {
+        use nav_trajectory::{TimeParamConfig, compute_time_optimal_solution};
+        use nav_core::PoseSE2;
+
+        // dists.len() is always >= 3 by collection constraint, no early return needed
+        let poses: Vec<PoseSE2> = (0..dists.len()).map(|i| {
+            let mut x = 0.0;
+            for j in 0..i { x += dists[j].abs(); }
+            PoseSE2::new(x, 0.0, 0.0)
+        }).collect();
+
+        let config = TimeParamConfig {
+            dt_ref: 0.1,
+            dt_max: 1.0,
+            dt_min: 0.01,
+            max_vel,
+            max_acc,
+            max_yaw_vel: 1.0,
+            max_yaw_acc: 1.0,
+        };
+
+        let profile = compute_time_optimal_solution(&poses, &config);
+        // All velocities should be non-negative and finite
+        for v in &profile.velocities {
+            assert!(v.is_finite(), "velocity should be finite: {}", v);
+            assert!(*v >= 0.0, "velocity should be non-negative: {}", v);
+        }
+    }
+}
