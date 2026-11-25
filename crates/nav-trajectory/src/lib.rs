@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments, unreachable_patterns)]
 //! nav-trajectory: trajectory primitives and time parameterization.
 //!
 //! Algorithms:

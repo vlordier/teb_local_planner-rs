@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments, unreachable_patterns)]
 //! Obstacle hierarchy ported from `obstacles.h`.
 //!
 //! - `Obstacle` — abstract base trait.

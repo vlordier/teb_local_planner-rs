@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments, unreachable_patterns)]
 //! Cubic spline interpolation for trajectory parameterization.
 //!
 //! Port of the C++ `cubic_spline.hpp` from teb_local_planner.

@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments, unreachable_patterns)]
 //! VehicleModel trait and implementations.
 //!
 //! Ported from `vehicle_model.h` concepts in teb_local_planner.

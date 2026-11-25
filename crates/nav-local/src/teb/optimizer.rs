@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments, unreachable_patterns)]
 //! TEB optimizer: Levenberg-Marquardt loop with iterative weight adaptation.
 //!
 //! Ported from C++ `optimal_planner.cpp`: optimizeTEB, optimizeGraph, buildGraph.

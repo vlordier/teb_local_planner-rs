@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments, unreachable_patterns)]
 //! Shared types for all local planners.
 //!
 //! Re-exports from nav-core and defines additional common types.

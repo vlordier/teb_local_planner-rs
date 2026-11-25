@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments, unreachable_patterns)]
 //! Edge types and cost functions for TEB optimization.
 //!
 //! Ported from C++ g2o_types: edge_time_optimal.h, edge_velocity.h,
@@ -1348,7 +1347,6 @@ impl EdgeEnum {
                 }
                 true
             }
-            _ => false,
         }
     }
 

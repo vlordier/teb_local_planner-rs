@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments, unreachable_patterns)]
 //! Time-optimal parameterization of geometric trajectories.
 //!
 //! Port of the C++ `time_optimal_parameterization.hpp` from teb_local_planner.

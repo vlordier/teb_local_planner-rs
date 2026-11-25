@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments, unreachable_patterns)]
 //! Hybrid A* combining A* search with vehicle kinematic motion primitives.
 //!
 //! The state space is (x, y, yaw), and the search uses discrete motion primitives
@@ -7,7 +6,7 @@
 //! reverse-left, reverse-straight, and reverse-right.
 
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 
 use crate::{Costmap2d, Point2, normalize_theta};
 

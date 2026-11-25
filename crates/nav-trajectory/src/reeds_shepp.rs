@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments, unreachable_patterns)]
 //! Reeds-Shepp path generation for vehicles with forward+backward capability.
 //!
 //! Unlike Dubins (forward-only), Reeds-Shepp allows forward and reverse motion.

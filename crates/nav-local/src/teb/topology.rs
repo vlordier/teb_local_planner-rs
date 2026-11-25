@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments, unreachable_patterns)]
 //! Topology handling and homotopy class planning.
 //!
 //! Ported from C++ `homotopy_class_planner.cpp`, `h_signature.h`, and `graph_search.h`.
@@ -370,6 +369,7 @@ impl TopologyManager {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use super::*;
 
     #[test]

@@ -129,7 +129,7 @@ pub fn dubins_path_from_poses(
     let best = candidates
         .into_iter()
         .filter_map(|c| c)
-        .min_by(|a, b| a.total.partial_cmp(&b.total).unwrap());
+        .min_by(|a, b| a.total.total_cmp(&b.total));
 
     best.map(|np| {
         // Clamp tiny negatives to zero (numerical precision from acos/sqrt)
