@@ -1,0 +1,23 @@
+[package]
+name = "nav-bevy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Bevy-based visualization and simulation for navigation planners"
+
+[features]
+default = []
+bevy = ["dep:bevy"]
+
+[dependencies]
+nalgebra.workspace = true
+nav-core.workspace = true
+nav-local.workspace = true
+nav-global.workspace = true
+nav-trajectory.workspace = true
+
+[dependencies.bevy]
+version = "0.15"
+optional = true
+default-features = false
+features = ["bevy_winit", "bevy_render", "bevy_core_pipeline", "bevy_pbr"]
