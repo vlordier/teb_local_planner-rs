@@ -106,15 +106,11 @@ pub trait Costmap2d {
 /// A 2D point alias for convenience.
 pub type Point2 = Vector2<f64>;
 
-/// Normalize an angle to [-pi, pi].
 #[inline]
 pub fn normalize_theta(theta: f64) -> f64 {
-    let mut t = theta;
-    while t > std::f64::consts::PI {
-        t -= 2.0 * std::f64::consts::PI;
-    }
-    while t < -std::f64::consts::PI {
-        t += 2.0 * std::f64::consts::PI;
-    }
+    let pi2 = 2.0 * std::f64::consts::PI;
+    let mut t = theta % pi2;
+    if t < -std::f64::consts::PI { t += pi2; }
+    else if t >= std::f64::consts::PI { t -= pi2; }
     t
 }

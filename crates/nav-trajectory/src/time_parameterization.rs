@@ -126,7 +126,8 @@ fn backward_pass(waypoints: &[PoseSE2], config: &TimeParamConfig) -> Vec<f64> {
     for i in (0..n - 1).rev() {
         let dist = waypoints[i].position_distance(&waypoints[i + 1]);
         let dt_min = compute_min_time(v[i + 1], config.max_vel, config.max_acc, dist);
-        let v_max = compute_v_max_from_decel(config.max_acc, dt_min, dist);
+        let v_end = v[i + 1];
+        let v_max = compute_v_max_from_decel(config.max_acc, dt_min, dist, v_end);
         v[i] = v_max.min(config.max_vel);
     }
 
@@ -195,12 +196,16 @@ fn compute_v_max_from_accel(v_start: f64, max_acc: f64, dt: f64, dist: f64) -> f
 /// Compute the maximum velocity at waypoint i given deceleration constraint
 /// to waypoint i+1.
 #[inline]
-fn compute_v_max_from_decel(max_acc: f64, dt: f64, dist: f64) -> f64 {
-    if dt < 1e-12 {
-        return 0.0;
-    }
-    let v_start = dist / dt + 0.5 * max_acc * dt;
-    v_start.max(0.0)
+fn compute_v_max_from_decel(max_acc: f64, dt: f64, dist: f64, v_end: f64) -> f64 {
+    if dt < 1e-12 { return v_end.max(0.0); }
+    // v_i = v_end + 0.5*a*dt + dist/dt
+    // Derived from: dist = v_i*dt + 0.5*(-a)*dt^2 + v_end*dt
+    // Rearranged: v_i = (dist - v_end*dt + 0.5*a*dt^2) / dt
+    //              = dist/dt - v_end + 0.5*a*dt
+    // But we want v_max, so we compute the max start velocity that allows
+    // decelerating to v_end over this segment.
+    let v_start = dist / dt + v_end - 0.5 * max_acc * dt;
+    v_start.max(v_end)
 }
 
 /// Compute the segment time step given velocities and constraints.
@@ -308,8 +313,8 @@ mod tests {
 
     #[test]
     fn test_compute_v_max_from_decel_basic() {
-        let v_max = compute_v_max_from_decel(3.0, 1.0, 4.5);
-        assert!((v_max - 6.0).abs() < 1e-10);
+        let v_max = compute_v_max_from_decel(3.0, 1.0, 4.5, 0.0);
+        assert!((v_max - 3.0).abs() < 1e-10);
     }
 
     #[test]

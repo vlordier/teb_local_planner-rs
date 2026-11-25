@@ -10,17 +10,13 @@ pub const HUGE_VAL: f64 = f64::INFINITY;
 /// Small number threshold.
 pub const SMALL_NUM: f64 = 1e-8;
 
-/// Normalize angle to [-pi, pi].
-///
-/// C++ equivalent: `g2o::normalize_theta()`
 #[inline]
 pub fn normalize_theta(theta: f64) -> f64 {
     let pi2 = 2.0 * std::f64::consts::PI;
-    let mut theta = theta.rem_euclid(pi2);
-    if theta > std::f64::consts::PI {
-        theta -= pi2;
-    }
-    theta
+    let mut t = theta % pi2;
+    if t < -std::f64::consts::PI { t += pi2; }
+    else if t >= std::f64::consts::PI { t -= pi2; }
+    t
 }
 
 /// Compute the mean/average angle of multiple angles.
@@ -68,7 +64,7 @@ pub fn is_close(a: f64, b: f64, epsilon: f64) -> bool {
 /// Sign function (returns -1, 0, or 1).
 #[inline]
 pub fn sign(x: f64) -> f64 {
-    if x < 0.0 { -1.0 } else { 1.0 }
+    if x < 0.0 { -1.0 } else if x > 0.0 { 1.0 } else { 0.0 }
 }
 
 // ===== Penalty functions =====
@@ -379,10 +375,9 @@ mod tests {
     #[test]
     fn test_normalize_theta() {
         assert!((normalize_theta(0.0) - 0.0).abs() < 1e-10);
-        assert!((normalize_theta(std::f64::consts::PI) - std::f64::consts::PI).abs() < 1e-10);
-        assert!((normalize_theta(-std::f64::consts::PI) - std::f64::consts::PI).abs() < 1e-10); // rem_euclid maps -π to π
-        assert!((normalize_theta(3.0 * std::f64::consts::PI) - std::f64::consts::PI).abs() < 1e-10);
-        assert!((normalize_theta(-3.0 * std::f64::consts::PI) - std::f64::consts::PI).abs() < 1e-10);
+        assert!((normalize_theta(std::f64::consts::PI) + std::f64::consts::PI).abs() < 1e-10);
+        assert!((normalize_theta(3.0 * std::f64::consts::PI) + std::f64::consts::PI).abs() < 1e-10);
+        assert!((normalize_theta(-3.0 * std::f64::consts::PI) + std::f64::consts::PI).abs() < 1e-10);
         assert!((normalize_theta(5.0 * std::f64::consts::PI / 2.0) - std::f64::consts::PI / 2.0).abs() < 1e-10);
     }
 
