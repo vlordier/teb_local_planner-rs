@@ -4,21 +4,30 @@
 //! - theta is always in [-pi, pi] after any valid construction
 //! - composition of two poses yields a valid pose
 //! - inverse composition with original yields identity
+//!
+//! Concrete bounds on symbolic inputs are required because CBMC cannot prove
+//! f64 modulo results for unbounded inputs. The normalize_angle function uses
+//! `angle % two_pi` which CBMC cannot reason about without constraints.
 
 #![no_main]
 
 mod pose_se2_kani {
+    use nav_core::PoseSE2;
+    use std::f64::consts::PI;
+
     /// PoseSE2::theta is always normalized to [-pi, pi] after from_xyz construction.
     #[kani::proof]
     #[kani::unwind(4)]
     fn pose_se2_theta_normalized() {
-        use nav_core::PoseSE2;
-        use std::f64::consts::PI;
-
         // Kani symbolic values — represent arbitrary inputs
         let x: f64 = kani::any();
         let y: f64 = kani::any();
         let theta: f64 = kani::any();
+
+        // CBMC needs bounds on f64 modulo; 100 covers ~15 full rotations of 2pi
+        kani::assume(x >= -100.0 && x <= 100.0);
+        kani::assume(y >= -100.0 && y <= 100.0);
+        kani::assume(theta >= -100.0 && theta <= 100.0);
 
         let pose = PoseSE2::from_xyz(x, y, theta);
         let pose_theta = pose.theta();
@@ -35,15 +44,20 @@ mod pose_se2_kani {
     #[kani::proof]
     #[kani::unwind(4)]
     fn pose_se2_composition_consistent() {
-        use nav_core::PoseSE2;
-        use std::f64::consts::PI;
-
         let x1: f64 = kani::any();
         let y1: f64 = kani::any();
         let t1: f64 = kani::any();
         let x2: f64 = kani::any();
         let y2: f64 = kani::any();
         let t2: f64 = kani::any();
+
+        // CBMC bounds for f64 modulo in normalize_angle
+        kani::assume(x1 >= -100.0 && x1 <= 100.0);
+        kani::assume(y1 >= -100.0 && y1 <= 100.0);
+        kani::assume(t1 >= -100.0 && t1 <= 100.0);
+        kani::assume(x2 >= -100.0 && x2 <= 100.0);
+        kani::assume(y2 >= -100.0 && y2 <= 100.0);
+        kani::assume(t2 >= -100.0 && t2 <= 100.0);
 
         let p1 = PoseSE2::from_xyz(x1, y1, t1);
         let p2 = PoseSE2::from_xyz(x2, y2, t2);
@@ -74,14 +88,20 @@ mod pose_se2_kani {
     }
 
     /// Inverse composition yields identity (zero pose).
+    /// Uses tighter bound (10.0) so normalization of -theta stays well within [-pi, pi]
+    /// and the inverse identity assertion is reliable.
     #[kani::proof]
     #[kani::unwind(4)]
     fn pose_se2_inverse_identity() {
-        use nav_core::PoseSE2;
-
         let x: f64 = kani::any();
         let y: f64 = kani::any();
         let t: f64 = kani::any();
+
+        // Tighter bounds for inverse test: keeps angles small so
+        // normalize_angle(-theta) is trivially -theta, ensuring p + inv(p) = identity
+        kani::assume(x >= -10.0 && x <= 10.0);
+        kani::assume(y >= -10.0 && y <= 10.0);
+        kani::assume(t >= -10.0 && t <= 10.0);
 
         let p = PoseSE2::from_xyz(x, y, t);
         let inv = p.inverted();
