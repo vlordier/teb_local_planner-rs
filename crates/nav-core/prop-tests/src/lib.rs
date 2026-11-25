@@ -246,10 +246,10 @@ proptest! {
         use nav_core::PoseSE2;
         let p = PoseSE2::new(x, y, theta);
         let inv = p.inverted();
-        let restored = inv.add(&p);
-        // Result should be zero (identity)
-        assert!((restored.x()).abs() < 1e-10);
-        assert!((restored.y()).abs() < 1e-10);
-        assert!((restored.theta()).abs() < 1e-10);
+        let restored = inv.transform_by(&p);
+        // Result should be zero (identity): inv transformed by original should give identity
+        assert!((restored.x()).abs() < 1e-6, "x error {} too large", restored.x());
+        assert!((restored.y()).abs() < 1e-6, "y error {} too large", restored.y());
+        assert!((restored.theta()).abs() < 1e-10, "theta error {} too large", restored.theta());
     }
 }

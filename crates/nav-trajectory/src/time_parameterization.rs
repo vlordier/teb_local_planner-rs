@@ -356,3 +356,174 @@ mod tests {
         }
     }
 }
+#[cfg(test)]
+mod adversarial_tests {
+    use super::*;
+    use crate::CubicSpline1D;
+    
+    #[test]
+    fn test_cubic_spline_n1_panic() {
+        let x: Vec<f64> = vec![0.0];
+        let y: Vec<f64> = vec![1.0];
+        let result = std::panic::catch_unwind(|| {
+            CubicSpline1D::fit(x, y)
+        });
+        assert!(result.is_err(), "CubicSpline1D::fit MUST panic for n=1");
+    }
+    
+    #[test]
+    fn test_cubic_spline_nonmonotonic_x() {
+        let x = vec![0.0, 2.0, 1.0];
+        let y = vec![0.0, 1.0, 2.0];
+        let _ = std::panic::catch_unwind(|| {
+            CubicSpline1D::fit(x, y)
+        });
+    }
+    
+    #[test]
+    fn test_cubic_spline_derivatives_at_boundaries() {
+        let x = vec![0.0, 1.0, 2.0, 3.0];
+        let y = vec![0.0, 1.0, 4.0, 9.0];
+        let spline = CubicSpline1D::fit(x.clone(), y);
+        let d0 = spline.eval_derivative(x[0]);
+        let d2 = spline.eval_second_derivative(x[0]);
+        assert!(d0.is_finite(), "derivative at x=0 finite, got {}", d0);
+        assert!(d2.is_finite(), "2nd deriv at x=0 finite, got {}", d2);
+    }
+    
+    #[test]
+    fn test_cubic_spline_equal_adjacent_x() {
+        let x = vec![0.0, 1.0, 1.0, 2.0];
+        let y = vec![0.0, 1.0, 2.0, 3.0];
+        let _ = std::panic::catch_unwind(|| {
+            CubicSpline1D::fit(x, y)
+        });
+    }
+    
+    #[test]
+    fn test_cubic_spline_constant_y() {
+        let x = vec![0.0, 1.0, 2.0, 3.0];
+        let y = vec![5.0, 5.0, 5.0, 5.0];
+        let spline = CubicSpline1D::fit(x.clone(), y);
+        for xi in &x {
+            let v = spline.eval(*xi);
+            assert!((v - 5.0).abs() < 1e-10,
+                "constant y spline should be 5.0, got {} at x={}", v, xi);
+        }
+    }
+    
+    #[test]
+    fn test_cubic_spline_large_y() {
+        let x = vec![0.0, 1.0, 2.0, 3.0];
+        let y = vec![1e15, 2e15, 3e15, 4e15];
+        let spline = CubicSpline1D::fit(x.clone(), y);
+        for xi in &x {
+            let v = spline.eval(*xi);
+            assert!(v.is_finite(), "large y eval should be finite, got {}", v);
+        }
+    }
+    
+    #[test]
+    fn test_time_param_zero_distance() {
+        let poses = vec![
+            PoseSE2::from_xyz(0.0, 0.0, 0.0),
+            PoseSE2::from_xyz(0.0, 0.0, 0.0),
+            PoseSE2::from_xyz(1.0, 0.0, 0.0),
+        ];
+        let config = TimeParamConfig {
+            max_vel: 10.0,
+            max_acc: 5.0,
+            ..Default::default()
+        };
+        let profile = compute_time_optimal_solution(&poses, &config);
+        for v in &profile.velocities {
+            assert!(v.is_finite(), "velocity finite zero dist, got {}", v);
+            assert!(*v >= 0.0, "velocity non-neg, got {}", v);
+        }
+    }
+    
+    #[test]
+    fn test_time_param_tiny_distance() {
+        let poses = vec![
+            PoseSE2::from_xyz(0.0, 0.0, 0.0),
+            PoseSE2::from_xyz(1e-15, 0.0, 0.0),
+            PoseSE2::from_xyz(1.0, 0.0, 0.0),
+        ];
+        let config = TimeParamConfig {
+            max_vel: 10.0,
+            max_acc: 5.0,
+            ..Default::default()
+        };
+        let profile = compute_time_optimal_solution(&poses, &config);
+        for v in &profile.velocities {
+            assert!(v.is_finite(), "velocity finite tiny dist, got {}", v);
+        }
+    }
+    
+    #[test]
+    fn test_time_param_zero_max_acc() {
+        let poses = vec![
+            PoseSE2::from_xyz(0.0, 0.0, 0.0),
+            PoseSE2::from_xyz(1.0, 0.0, 0.0),
+            PoseSE2::from_xyz(2.0, 0.0, 0.0),
+        ];
+        let config = TimeParamConfig {
+            max_vel: 10.0,
+            max_acc: 0.0,
+            ..Default::default()
+        };
+        let profile = compute_time_optimal_solution(&poses, &config);
+        for v in &profile.velocities {
+            assert!(v.is_finite(), "velocity finite zero max_acc, got {}", v);
+        }
+    }
+    
+    #[test]
+    fn test_time_param_backward_motion() {
+        let poses = vec![
+            PoseSE2::from_xyz(0.0, 0.0, 0.0),
+            PoseSE2::from_xyz(-1.0, 0.0, 0.0),
+            PoseSE2::from_xyz(-2.0, 0.0, 0.0),
+        ];
+        let config = TimeParamConfig {
+            max_vel: 10.0,
+            max_acc: 5.0,
+            ..Default::default()
+        };
+        let profile = compute_time_optimal_solution(&poses, &config);
+        for v in &profile.velocities {
+            assert!(v.is_finite(), "speed finite backward, got {}", v);
+            assert!(*v >= 0.0, "speed non-neg, got {}", v);
+        }
+    }
+    
+    #[test]
+    fn test_time_param_all_zeros() {
+        let poses = vec![
+            PoseSE2::from_xyz(0.0, 0.0, 0.0),
+            PoseSE2::from_xyz(1.0, 0.0, 0.0),
+            PoseSE2::from_xyz(2.0, 0.0, 0.0),
+        ];
+        let config = TimeParamConfig {
+            max_vel: 10.0,
+            max_acc: 5.0,
+            ..Default::default()
+        };
+        let profile = compute_time_optimal_solution(&poses, &config);
+        assert!((profile.velocities[0] - 0.0).abs() < 1e-10,
+            "first vel should be 0, got {}", profile.velocities[0]);
+        assert!((profile.velocities[profile.velocities.len()-1] - 0.0).abs() < 1e-10,
+            "last vel should be 0, got {}", profile.velocities[profile.velocities.len()-1]);
+    }
+    
+    #[test]
+    fn test_cubic_spline_eval_out_of_bounds() {
+        let x = vec![0.0, 1.0, 2.0, 3.0];
+        let y = vec![0.0, 1.0, 4.0, 9.0];
+        let spline = CubicSpline1D::fit(x, y);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            spline.eval(5.0)
+        }));
+        assert!(result.is_err(), "eval(5.0) should panic");
+    }
+}

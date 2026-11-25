@@ -35,12 +35,13 @@ impl CubicSpline1D {
     ///
     /// # Panics
     /// Panics if `x_data` is empty, has mismatched length with `y_data`,
-    /// or is not strictly increasing.
+    /// has fewer than 2 data points, or is not strictly increasing.
     pub fn fit(x_data: Vec<f64>, y_data: Vec<f64>) -> Self {
         assert!(!x_data.is_empty(), "x_data must not be empty");
         assert_eq!(x_data.len(), y_data.len(), "x_data and y_data must have same length");
-
         let n = x_data.len();
+        assert!(n >= 2, "CubicSpline1D::fit requires at least 2 data points, got {}", n);
+
         let mut spline = Self {
             x_data,
             y_data,
@@ -60,6 +61,10 @@ impl CubicSpline1D {
     /// # Panics
     /// Panics if `x` is outside [min(x_data), max(x_data)].
     pub fn eval(&self, x: f64) -> f64 {
+        assert!(
+            x >= self.x_data[0] && x <= self.x_data[self.n - 1],
+            "x={} is outside [{}..{}]", x, self.x_data[0], self.x_data[self.n - 1]
+        );
         let seg = self._segment(x);
         let dx = x - self.x_data[seg];
         self.a[seg]
