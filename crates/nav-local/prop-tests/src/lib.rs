@@ -153,7 +153,7 @@ mod edge_prop {
     fn edge_obstacle_error_bounded_below() {
         proptest! {
             fn edge_obstacle_error_bounded_below(dist: f64, min_dist: f64) {
-                let edge = EdgeObstacle::new(0, 1.0);
+                let edge = EdgeObstacle::new(0, 1.0, nalgebra::Point2::new(0.0, 0.0));
                 let min_dist = min_dist.abs().max(0.01);
                 let dist = dist.abs().max(0.0);
                 let epsilon = 0.01;
@@ -168,7 +168,7 @@ mod edge_prop {
     fn edge_obstacle_error_zero_when_safe() {
         proptest! {
             fn edge_obstacle_error_zero_when_safe(min_dist: f64) {
-                let edge = EdgeObstacle::new(0, 1.0);
+                let edge = EdgeObstacle::new(0, 1.0, nalgebra::Point2::new(0.0, 0.0));
                 let min_dist = min_dist.abs().max(0.01);
                 let dist = min_dist + 0.5;
                 let err = edge.error_with_distance(dist, min_dist, 0.01);

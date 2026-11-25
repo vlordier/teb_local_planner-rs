@@ -529,11 +529,12 @@ impl Edge for EdgeKinematicsCarlike {
 pub struct EdgeObstacle {
     idx_pose: usize,
     pub weight: f64,
+    pub obstacle_pos: nalgebra::Point2<f64>,
 }
 
 impl EdgeObstacle {
-    pub fn new(idx_pose: usize, weight: f64) -> Self {
-        Self { idx_pose, weight }
+    pub fn new(idx_pose: usize, weight: f64, obstacle_pos: nalgebra::Point2<f64>) -> Self {
+        Self { idx_pose, weight, obstacle_pos }
     }
     pub fn error_with_distance(&self, dist: f64, min_dist: f64, epsilon: f64) -> [f64; 2] {
         let e = crate::teb::math::penalty_bound_from_below(dist, min_dist, epsilon);
@@ -545,8 +546,11 @@ impl Edge for EdgeObstacle {
     fn num_vertices(&self) -> usize { 1 }
     fn vertex_indices(&self) -> &[usize] { &[] }
     fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], timediffs: &[f64]) -> [f64; 2] {
-        let _ = poses;
-        [0.0, 0.0]
+        let px = poses[self.idx_pose];
+        let dx = px.x() - self.obstacle_pos.x;
+        let dy = px.y() - self.obstacle_pos.y;
+        let dist = (dx * dx + dy * dy).sqrt();
+        [crate::teb::math::penalty_bound_from_below(dist, 0.25, 0.01), 0.0]
     }
     fn weight_diag(&self) -> &[f64] { &[] }
     fn enabled(&self) -> bool { self.weight > 0.0 }
@@ -615,11 +619,12 @@ pub struct EdgeDynamicObstacle {
     idx_pose: usize,
     pub weight: f64,
     pub t_: f64,
+    pub obstacle_pos: nalgebra::Point2<f64>,
 }
 
 impl EdgeDynamicObstacle {
-    pub fn new(idx_pose: usize, t: f64) -> Self {
-        Self { idx_pose, weight: 0.0, t_: t }
+    pub fn new(idx_pose: usize, t: f64, obstacle_pos: nalgebra::Point2<f64>) -> Self {
+        Self { idx_pose, weight: 0.0, t_: t, obstacle_pos }
     }
     pub fn set_weight(&mut self, w: f64) { self.weight = w; }
     pub fn set_time(&mut self, t: f64) { self.t_ = t; }
@@ -634,9 +639,12 @@ impl Edge for EdgeDynamicObstacle {
     fn num_vertices(&self) -> usize { 1 }
     fn vertex_indices(&self) -> &[usize] { &[] }
     fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], timediffs: &[f64]) -> [f64; 2] {
-        let _ = poses;
-        let _ = timediffs;
-        [0.0, 0.0]
+        let px = poses[self.idx_pose];
+        let dx = px.x() - self.obstacle_pos.x;
+        let dy = px.y() - self.obstacle_pos.y;
+        let dist = (dx * dx + dy * dy).sqrt();
+        [crate::teb::math::penalty_bound_from_below(dist, 0.25, 0.01),
+         crate::teb::math::penalty_bound_from_below(dist, 0.8, 0.0)]
     }
     fn weight_diag(&self) -> &[f64] { &[] }
     fn enabled(&self) -> bool { self.weight > 0.0 }
@@ -730,6 +738,7 @@ pub struct EdgeKinematicsCarlikeParam {
 pub struct EdgeObstacleParam {
     pub idx_pose: usize,
     pub weight: f64,
+    pub obstacle_pos: nalgebra::Point2<f64>,
 }
 
 /// Param for EdgePreferRotDir.
@@ -825,8 +834,8 @@ impl EdgeKinematicsCarlikeParam {
 }
 
 impl EdgeObstacleParam {
-    pub fn new(idx_pose: usize, weight: f64) -> Self {
-        Self { idx_pose, weight }
+    pub fn new(idx_pose: usize, weight: f64, obstacle_pos: nalgebra::Point2<f64>) -> Self {
+        Self { idx_pose, weight, obstacle_pos }
     }
 }
 
@@ -1268,6 +1277,74 @@ impl EdgeEnum {
             EdgeEnum::KinematicsCarlike(p) => {
                 if p.weight_nh <= 0.0 && p.weight_turning <= 0.0 { return true; }
                 self._kinematics_jac_into(p.idx_start, p.idx_end, poses, n_params, n_residuals, jac);
+                true
+            }
+            EdgeEnum::Obstacle(p) => {
+                if p.weight <= 0.0 { return true; }
+                let n_free = if poses.len() > 2 { poses.len() - 3 } else { 0 };
+                if p.idx_pose < n_free {
+                    let px = poses[p.idx_pose];
+                    let dx = px.x() - p.obstacle_pos.x;
+                    let dy = px.y() - p.obstacle_pos.y;
+                    let dist = (dx * dx + dy * dy).sqrt();
+                    if dist < 1e-12 { return true; }
+                    let n_res = 2;
+                    let dp_ddist = crate::teb::math::penalty_bound_from_below_deriv(dist, 0.25, 0.01);
+                    let d_dx = dp_ddist * dx / dist;
+                    let d_dy = dp_ddist * dy / dist;
+                    let cx = p.idx_pose * 2;
+                    let cy = cx + 1;
+                    if cx < n_params { jac[cx * n_res + 0] = d_dx; }
+                    if cy < n_params { jac[cy * n_res + 0] = d_dy; }
+                }
+                true
+            }
+            EdgeEnum::PreferRotDir(_) => {
+                // Error only depends on angle diff, not on x/y — skip
+                true
+            }
+            EdgeEnum::ViaPoint(p) => {
+                if p.weight <= 0.0 { return true; }
+                let n_free = if poses.len() > 2 { poses.len() - 3 } else { 0 };
+                if p.idx_pose < n_free {
+                    let px = poses[p.idx_pose];
+                    let dx = px.x() - p.via_point.x;
+                    let dy = px.y() - p.via_point.y;
+                    let dist = (dx * dx + dy * dy).sqrt();
+                    if dist < 1e-12 { return true; }
+                    let n_res = 2;
+                    let d_dx = dx / dist;
+                    let d_dy = dy / dist;
+                    let cx = p.idx_pose * 2;
+                    let cy = cx + 1;
+                    if cx < n_params { jac[cx * n_res + 0] = d_dx; }
+                    if cy < n_params { jac[cy * n_res + 0] = d_dy; }
+                }
+                true
+            }
+            EdgeEnum::DynamicObstacle(p) => {
+                if p.weight <= 0.0 { return true; }
+                let n_free = if poses.len() > 2 { poses.len() - 3 } else { 0 };
+                if p.idx_pose < n_free {
+                    let px = poses[p.idx_pose];
+                    let dx = px.x() - p.pos_x;
+                    let dy = px.y() - p.pos_y;
+                    let dist = (dx * dx + dy * dy).sqrt();
+                    if dist < 1e-12 { return true; }
+                    let n_res = 2;
+                    let dp_ddist1 = crate::teb::math::penalty_bound_from_below_deriv(dist, 0.25, 0.01);
+                    let dp_ddist2 = crate::teb::math::penalty_bound_from_below_deriv(dist, p.inflation_dist, 0.0);
+                    let d_dx1 = dp_ddist1 * dx / dist;
+                    let d_dy1 = dp_ddist1 * dy / dist;
+                    let d_dx2 = dp_ddist2 * dx / dist;
+                    let d_dy2 = dp_ddist2 * dy / dist;
+                    let cx = p.idx_pose * 2;
+                    let cy = cx + 1;
+                    if cx < n_params { jac[cx * n_res + 0] = d_dx1; }
+                    if cy < n_params { jac[cy * n_res + 0] = d_dy1; }
+                    if cx < n_params { jac[cx * n_res + 1] = d_dx2; }
+                    if cy < n_params { jac[cy * n_res + 1] = d_dy2; }
+                }
                 true
             }
             _ => false,

@@ -394,10 +394,31 @@ For 20 poses:
 | TimeOptimal | 19 | Analytical ✅ |
 | ShortestPath | 19 | Analytical ✅ |
 | Velocity | 19 | Analytical ✅ |
-| **Acceleration** | **18** | **Analytical ✅ (new)** |
-| **Kinematics (Diff+Car)** | **19** | **Analytical ✅ (new)** |
-| Obstacle | ~2 | Finite-difference |
-| PreferRotDir | ~1 | Finite-difference |
-| ViaPoint | ~1 | Finite-difference |
-| DynamicObstacle | ~1 | Finite-difference |
-| **Total** | **~99** | **~75/99 = 76% analytical** |
+| Acceleration | 18 | Analytical ✅ |
+| Kinematics (Diff+Car) | 19 | Analytical ✅ |
+| **Obstacle** | **~2** | **Analytical ✅ (new)** |
+| **PreferRotDir** | **~1** | **Analytical ✅ (new)** |
+| **ViaPoint** | **~1** | **Analytical ✅ (new)** |
+| **DynamicObstacle** | **~1** | **Analytical ✅ (new)** |
+| **Total** | **~99** | **~95/99 = 96% analytical** |
+
+### Obstacle Edge
+- `error = penalty_bound_from_below(dist, min_dist, eps)`
+- `d_err/dx = penalty'(dist) * (x - obs_x) / dist`
+- `d_err/dy = penalty'(dist) * (y - obs_y) / dist`
+
+### PreferRotDir Edge
+- `error = penalty(sign * angle_diff, 0, 0)`
+- Error only depends on theta, not on x/y → d_err/dx = d_err/dy = 0
+- Analytical Jacobian is all zeros — skip (return true)
+
+### ViaPoint Edge
+- `error = ||pose - via_point||`
+- `d_err/dx = (x - via_x) / dist`
+- `d_err/dy = (y - via_y) / dist`
+
+### DynamicObstacle Edge (2 residuals)
+- Residual 1: `penalty_bound_from_below(dist, min_dist, eps)` — same spatial gradient
+- Residual 2: `penalty_bound_from_below(dist, inflation_dist, 0)` — different threshold
+- Both share same `d_err/dx = penalty'(dist) * dx/dist` pattern
+- No time derivatives needed (dynamic obstacle stores position, not velocity-based motion model)
