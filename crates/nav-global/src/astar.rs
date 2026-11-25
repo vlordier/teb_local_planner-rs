@@ -408,11 +408,12 @@ mod tests {
 
     #[test]
     fn test_normalize_theta() {
+        // g2o normalize_angle returns [-pi, pi) — PI maps to -PI
         assert_relative_eq!(normalize_theta(0.0), 0.0);
-        assert_relative_eq!(normalize_theta(std::f64::consts::PI), std::f64::consts::PI);
+        assert_relative_eq!(normalize_theta(std::f64::consts::PI), -std::f64::consts::PI);
         assert_relative_eq!(
             normalize_theta(std::f64::consts::PI + 0.1),
-            -std::f64::consts::PI + 0.1
+        -std::f64::consts::PI + 0.1
         );
         assert_relative_eq!(
             normalize_theta(-std::f64::consts::PI - 0.1),

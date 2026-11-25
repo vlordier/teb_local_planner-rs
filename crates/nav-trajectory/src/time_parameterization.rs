@@ -526,4 +526,88 @@ mod adversarial_tests {
         }));
         assert!(result.is_err(), "eval(5.0) should panic");
     }
+    
+    // Bug: compute_min_time with v_start=v_max=0 and zero distance
+    #[test]
+    fn test_compute_min_time_zero_vel_zero_dist() {
+        // v_start=0, v_max=0, dist=0: should return 0, not inf
+        let t = compute_min_time(0.0, 0.0, 1.0, 0.0);
+        assert!(t.is_finite(), "min_time for zero everything should be finite, got {}", t);
+        assert!(t >= 0.0, "min_time should be non-negative, got {}", t);
+    }
+    
+    // Bug: compute_segment_average with negative dt
+    #[test]
+    fn test_compute_segment_average_negative_dt() {
+        // dt should always be positive, but what if it's not?
+        let v_avg = compute_segment_average(1.0, 2.0, -0.1, 5.0);
+        // This should still be finite and reasonable
+        assert!(v_avg.is_finite(), "segment avg with negative dt should be finite, got {}", v_avg);
+    }
+    
+    // Bug: compute_min_time with very large v_start and zero max_acc
+    #[test]
+    fn test_compute_min_time_zero_acc_large_vel() {
+        let t = compute_min_time(10.0, 10.0, 0.0, 5.0);
+        // With zero max_acc and v_start >= v_max, goes to line 167: dist / v_start.max(1e-10)
+        assert!(t.is_finite(), "min_time with zero acc should be finite, got {}", t);
+    }
+    
+    // Bug: compute_v_max_from_decel with very large v_end
+    #[test]
+    fn test_compute_v_max_from_decel_large_v_end() {
+        // v_end much larger than what's physically possible
+        let v = compute_v_max_from_decel(1.0, 0.1, 5.0, 100.0);
+        // Should be at least v_end (the constraint v_start >= v_end)
+        assert!(v.is_finite(), "v_max_from_decel should be finite, got {}", v);
+        assert!(v >= 100.0 - 1e-10, "v_max_from_decel should be >= v_end, got {}", v);
+    }
+    
+    // Bug: forward_pass with decreasing distances
+    #[test]
+    fn test_forward_pass_decreasing_dist() {
+        let poses = vec![
+            PoseSE2::from_xyz(0.0, 0.0, 0.0),
+            PoseSE2::from_xyz(0.5, 0.0, 0.0),
+            PoseSE2::from_xyz(0.6, 0.0, 0.0),
+            PoseSE2::from_xyz(0.7, 0.0, 0.0),
+        ];
+        let config = TimeParamConfig {
+            max_vel: 10.0,
+            max_acc: 5.0,
+            ..Default::default()
+        };
+        let profile = compute_time_optimal_solution(&poses, &config);
+        // All velocities should be non-negative
+        for v in &profile.velocities {
+            assert!(*v >= 0.0, "velocity should be non-negative, got {}", v);
+        }
+    }
+    
+    // Bug: time parameterization with all waypoints at same position
+    #[test]
+    fn test_time_param_all_same_position() {
+        let poses = vec![
+            PoseSE2::from_xyz(1.0, 2.0, 0.0),
+            PoseSE2::from_xyz(1.0, 2.0, 0.0),
+            PoseSE2::from_xyz(1.0, 2.0, 0.0),
+        ];
+        let config = TimeParamConfig {
+            max_vel: 10.0,
+            max_acc: 5.0,
+            ..Default::default()
+        };
+        let profile = compute_time_optimal_solution(&poses, &config);
+        // All velocities should be zero
+        for (i, v) in profile.velocities.iter().enumerate() {
+            assert!(*v < 1e-10, "velocity at all-zero dist should be ~0, got {} at i={}", v, i);
+        }
+        // Times should be monotonically increasing
+        for i in 1..profile.times.len() {
+            assert!(profile.times[i] > profile.times[i-1],
+                "times should strictly increase even with zero distance");
+        }
+    }
+    
+    // Note: single waypoint requires >= 2 waypoints (documented, panics with "need at least 2 waypoints")
 }

@@ -741,10 +741,10 @@ mod tests {
     #[test]
     fn test_normalize_theta() {
         assert_relative_eq!(normalize_theta(0.0), 0.0);
-        assert_relative_eq!(normalize_theta(std::f64::consts::PI), std::f64::consts::PI);
+        assert_relative_eq!(normalize_theta(std::f64::consts::PI), -std::f64::consts::PI);
         assert_relative_eq!(
             normalize_theta(3.0 * std::f64::consts::PI),
-            std::f64::consts::PI,
+            -std::f64::consts::PI,
             epsilon = 1e-10
         );
         assert_relative_eq!(

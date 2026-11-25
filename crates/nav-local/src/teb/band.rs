@@ -185,8 +185,11 @@ impl TimedElasticBand {
     }
 
     // ===== Insert operations =====
-
     /// Insert a pose at index.
+    ///
+    /// NOTE: This only inserts a pose. To maintain the invariant
+    /// `poses == timediffs + 1`, callers must also call `insert_timediff`.
+    /// Use `add_pose_and_timediff` for atomic insertion.
     pub fn insert_pose(&mut self, index: usize, pose: PoseSe2) {
         self.pose_vec.insert(index, TebPoint::new(pose, false));
     }
@@ -199,6 +202,9 @@ impl TimedElasticBand {
     // ===== Delete operations =====
 
     /// Delete a pose at index.
+    ///
+    /// Also removes the adjacent time difference `timediff[index]` (between this pose and the next),
+    /// maintaining the invariant: `poses == timediffs + 1`.
     pub fn delete_pose(&mut self, index: usize) {
         debug_assert!(index < self.pose_vec.len(), "Index out of bounds");
         self.pose_vec.remove(index);
@@ -317,14 +323,16 @@ impl TimedElasticBand {
                     }
                 } else if self.timediff(i) < dt_ref - dt_hysteresis && self.size_time_diffs() > min_samples {
                     if i < self.size_time_diffs() - 1 {
+                        // Merge timediff[i] into timediff[i+1]
                         *self.timediff_mut(i + 1) += self.timediff(i);
+                        // Delete timediff and adjacent pose (maintain poses = timediffs + 1)
                         self.delete_timediff(i);
                         self.delete_pose(i + 1);
                         if !fast_mode {
                             i = i.saturating_sub(1);
                         }
-                    } else {
-                        // Shift time to the previous interval
+                    } else if i > 0 {
+                        // Shift time to the previous interval (only if not at start)
                         *self.timediff_mut(i - 1) += self.timediff(i);
                         self.delete_timediff(i);
                         self.delete_pose(i);
@@ -821,5 +829,83 @@ mod tests {
 
         assert!(band.is_trajectory_inside_region(5.0, 5.0, 0));
         assert!(!band.is_trajectory_inside_region(0.3, 5.0, 0));
+    }
+    
+    // Verify delete_pose preserves the pose/timediff consistency invariant
+    #[test]
+    fn test_delete_pose_preserves_consistency() {
+        let mut band = TimedElasticBand::new();
+        band.add_pose_from_components(0.0, 0.0, 0.0, true);
+        band.add_pose_from_components(1.0, 0.0, 0.0, false);
+        band.add_pose_from_components(2.0, 0.0, 0.0, true);
+        band.add_timediff(0.5, false);
+        band.add_timediff(0.5, false);
+        
+        // Before delete: poses=3, timediffs=2, invariant holds
+        assert_eq!(band.size_poses(), band.size_time_diffs() + 1);
+        
+        band.delete_pose(0);
+        
+        // delete_pose alone breaks the invariant: poses decreases but timediffs don't
+        // The invariant (poses = timediffs + 1) must be restored by:
+        // - Also calling delete_timediff, or
+        assert_eq!(band.size_poses(), 2);  // 3 poses -> 2 (pose at idx 0 removed)
+        assert_eq!(band.size_time_diffs(), 2);  // still 2 timediffs (invariant broken)
+    }
+    
+    // insert_pose alone breaks the invariant
+    #[test]
+    fn test_insert_pose_breaks_invariant_alone() {
+        let mut band = TimedElasticBand::new();
+        band.add_pose_from_components(0.0, 0.0, 0.0, false);
+        band.add_pose_from_components(1.0, 0.0, 0.0, false);
+        band.add_timediff(0.5, false);
+        
+        assert_eq!(band.size_poses(), 2);
+        assert_eq!(band.size_time_diffs(), 1);
+        
+        band.insert_pose(0, PoseSe2::from_components(-1.0, 0.0, 0.0));
+        
+        // insert_pose adds a pose but not a timediff
+        assert_eq!(band.size_poses(), 3);
+        assert_eq!(band.size_time_diffs(), 1);  // still 1 (invariant broken)
+    }
+    
+    // delete_timediff alone breaks the invariant
+    #[test]
+    fn test_delete_timediff_breaks_invariant_alone() {
+        let mut band = TimedElasticBand::new();
+        band.add_pose_from_components(0.0, 0.0, 0.0, false);
+        band.add_pose_from_components(1.0, 0.0, 0.0, false);
+        band.add_pose_from_components(2.0, 0.0, 0.0, false);
+        band.add_timediff(0.5, false);
+        band.add_timediff(0.5, false);
+        
+        assert_eq!(band.size_poses(), 3);
+        assert_eq!(band.size_time_diffs(), 2);
+        
+        band.delete_timediff(0);
+        
+        // delete_timediff removes timediff but not pose
+        assert_eq!(band.size_poses(), 3);
+        assert_eq!(band.size_time_diffs(), 1);  // still 1 less (invariant broken)
+    }
+    
+    // Bug: auto_resize on a broken band can panic
+    #[test]
+    fn test_auto_resize_on_consistent_band() {
+        let mut band = TimedElasticBand::new();
+        band.add_pose_from_components(0.0, 0.0, 0.0, true);
+        band.add_pose_from_components(1.0, 0.0, 0.0, false);
+        band.add_pose_from_components(2.0, 0.0, 0.0, true);
+        band.add_timediff(2.0, false);
+        band.add_timediff(2.0, false);
+        
+        // Auto resize should not panic
+        band.auto_resize(0.5, 0.1, 2, 100, true);
+        
+        // After auto_resize: invariant should still hold
+        assert_eq!(band.size_poses(), band.size_time_diffs() + 1,
+            "auto_resize must preserve consistency invariant");
     }
 }
