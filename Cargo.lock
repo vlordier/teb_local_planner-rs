@@ -165,6 +165,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "arbitrary"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3bc62ac97cc33321f50863d514c3bc38a453947a8f9e781137e47c7401020aed"
+
+[[package]]
 name = "argmin"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2509,6 +2515,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
 
 [[package]]
+name = "libfuzzer-sys"
+version = "0.4.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9fd2f41a1cba099f79a0b6b6c35656cf7c03351a7bae8ff0f28f25270f929d2"
+dependencies = [
+ "arbitrary",
+ "cc",
+]
+
+[[package]]
 name = "libloading"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2816,6 +2832,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nav-compare"
+version = "0.1.0"
+dependencies = [
+ "approx 0.5.1",
+ "cc",
+ "nav-core",
+]
+
+[[package]]
 name = "nav-core"
 version = "0.1.0"
 dependencies = [
@@ -2830,6 +2855,15 @@ dependencies = [
  "nalgebra 0.33.3",
  "nav-core",
  "proptest",
+]
+
+[[package]]
+name = "nav-fuzz"
+version = "0.1.0"
+dependencies = [
+ "libfuzzer-sys",
+ "nav-core",
+ "nav-trajectory",
 ]
 
 [[package]]

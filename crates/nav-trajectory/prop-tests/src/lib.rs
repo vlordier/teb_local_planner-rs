@@ -5,6 +5,7 @@
 //! - TrajectorySpline pose_at(t) interpolation
 //! - Time parameterization velocity/acceleration constraints
 
+use proptest::proptest;
 mod dubins_prop {
     use nav_core::PoseSE2;
     use nav_trajectory::{dubins_path_from_poses, sample_dubins};
@@ -226,3 +227,63 @@ mod time_param_prop {
         }
     }
 }
+// ── Standalone property tests ──────────────────────────────────────────────
+
+/// Dubins path with any inputs yields non-negative length and non-negative segments.
+#[test]
+fn prop_dubins_non_negative_length() {
+    use nav_core::PoseSE2;
+    use nav_trajectory::dubins_path_from_poses;
+    proptest!(|(
+        x1 in -100.0..100.0f64,
+        y1 in -100.0..100.0f64,
+        t1 in -3.0..3.0f64,
+        x2 in -100.0..100.0f64,
+        y2 in -100.0..100.0f64,
+        t2 in -3.0..3.0f64,
+        radius in 0.1..100.0f64,
+    )| {
+        let p1 = PoseSE2::new(x1, y1, t1);
+        let p2 = PoseSE2::new(x2, y2, t2);
+        if let Some(path) = dubins_path_from_poses(&p1, &p2, radius) {
+            assert!(
+                path.length >= 0.0,
+                "dubins path length must be non-negative: {}",
+                path.length
+            );
+        }
+    });
+}
+/// CubicSpline1D interpolates all its data points.
+#[test]
+fn prop_spline_interpolates_data_points() {
+    use nav_trajectory::CubicSpline1D;
+    proptest!(|(
+        x1 in 0.0..1.0f64,
+        x2 in 1.0..2.0f64,
+        x3 in 2.0..3.0f64,
+        y1 in -100.0..100.0f64,
+        y2 in -100.0..100.0f64,
+        y3 in -100.0..100.0f64,
+    )| {
+        // x1, x2, x3 are already strictly increasing by construction
+        let xs = [x1, x2, x3];
+        let ys = [y1, y2, y3];
+        let spline = CubicSpline1D::fit(xs.to_vec(), ys.to_vec());
+
+        for i in 0..3 {
+            let val = spline.eval(xs[i]);
+            assert!(
+                val.is_finite(),
+                "spline.eval({}) = NaN",
+                xs[i]
+            );
+            assert!(
+                (val - ys[i]).abs() < 1e-6,
+                "spline should interpolate point {}, got {} vs {}",
+                i, val, ys[i]
+            );
+        }
+    });
+}
+

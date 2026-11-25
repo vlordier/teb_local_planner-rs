@@ -9,8 +9,10 @@ members = [
     "crates/nav-core/prop-tests",
     "crates/nav-global/prop-tests",
     "crates/nav-local/prop-tests",
+    "crates/nav-compare",
     "crates/nav-trajectory/prop-tests",
     "kani",
+    "crates/nav-fuzz",
 ]
 
 [workspace.package]

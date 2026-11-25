@@ -4,6 +4,7 @@
 //! - VelocityPair zero default
 //! - Trajectory push/pop data integrity
 
+use proptest::proptest;
 mod pose_prop {
     use nav_core::{PoseSE2, VelocityPair};
     use proptest::prelude::*;
@@ -75,6 +76,73 @@ mod pose_prop {
         assert_eq!(vp.omega, 0.0);
     }
 }
+// ── Standalone property tests ──────────────────────────────────────────────
+
+/// normalize_angle always returns value in [-pi, pi] for finite inputs.
+#[test]
+fn prop_normalize_angle_finite_inputs_in_range() {
+    use nav_core::misc::normalize_angle;
+    proptest!(|(angle in -1000.0..1000.0f64)| {
+        let result = normalize_angle(angle);
+        if result.is_finite() {
+            assert!(
+                result >= -std::f64::consts::PI && result <= std::f64::consts::PI,
+                "normalize_angle({}) = {} outside [-pi, pi]",
+                angle, result
+            );
+        }
+    });
+}
+
+/// normalize_angle is idempotent: applying it twice yields the same result.
+#[test]
+fn prop_normalize_angle_idempotent() {
+    use nav_core::misc::normalize_angle;
+    proptest!(|(angle in -1000.0..1000.0f64)| {
+        let r1 = normalize_angle(angle);
+        let r2 = normalize_angle(r1);
+        assert!(
+            (r1 - r2).abs() < 1e-14,
+            "normalize_angle not idempotent: r1={}, r2={}",
+            r1, r2
+        );
+    });
+}
+
+/// PoseSE2::add is commutative: a + b ≈ b + a (theta normalized).
+#[test]
+fn prop_pose_se2_add_commutative() {
+    use nav_core::PoseSE2;
+    proptest!(|(
+        x1 in -100.0..100.0f64,
+        y1 in -100.0..100.0f64,
+        t1 in -100.0..100.0f64,
+        x2 in -100.0..100.0f64,
+        y2 in -100.0..100.0f64,
+        t2 in -100.0..100.0f64,
+    )| {
+        let p1 = PoseSE2::new(x1, y1, t1);
+        let p2 = PoseSE2::new(x2, y2, t2);
+        let a = p1.add(&p2);
+        let b = p2.add(&p1);
+        assert!(
+            (a.x() - b.x()).abs() < 1e-10,
+            "commutative x: a.x={} b.x={}",
+            a.x(), b.x()
+        );
+        assert!(
+            (a.y() - b.y()).abs() < 1e-10,
+            "commutative y: a.y={} b.y={}",
+            a.y(), b.y()
+        );
+        assert!(
+            (a.theta() - b.theta()).abs() < 1e-10,
+            "commutative theta: a.t={} b.t={}",
+            a.theta(), b.theta()
+        );
+    });
+}
+
 
 mod trajectory_prop {
     use nav_core::{PoseSE2, Trajectory};

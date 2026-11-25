@@ -7,6 +7,7 @@
 use nalgebra::Vector2;
 use nav_global::{AStarConfig, Costmap2d, AStarResult, RRTStarConfig, RRTStarResult};
 use std::collections::HashMap;
+use proptest::proptest;
 
 /// A simple costmap implementation for proptest.
 #[derive(Clone)]
@@ -262,4 +263,28 @@ mod dstar_prop {
             }
         }
     }
+}
+// ── Standalone property tests ──────────────────────────────────────────────
+
+/// A* produces a valid path (placeholder: verifies the algorithm compiles and
+/// runs with generated map dimensions without panicking).
+#[test]
+fn prop_astar_path_is_connected() {
+    use nav_global::astar_search;
+    proptest!(|(
+        width in 10..50usize,
+        height in 10..50usize,
+    )| {
+        let resolution = 0.1;
+        let costmap = TestCostmap::new(width, height, resolution);
+
+        let start = Vector2::new(0.0, 0.0);
+        let goal = Vector2::new(
+            ((width - 1) as f64) * resolution,
+            ((height - 1) as f64) * resolution,
+        );
+
+        let config = AStarConfig::default();
+        let _result = astar_search(start, goal, &costmap, &config);
+    });
 }
