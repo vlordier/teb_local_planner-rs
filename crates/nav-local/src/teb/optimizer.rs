@@ -18,7 +18,7 @@ use crate::teb::edges::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParamVertex {
     /// Pose parameter: 0 = x, 1 = y
-    Pose { pose_idx: usize, comp: usize },
+    Pose { pose_idx: usize, _comp: usize },
     /// Time difference parameter
     TimeDiff { td_idx: usize },
 }
@@ -362,22 +362,22 @@ impl TEBOptimizer {
 
         if param_idx <= max_fb + 1 {
             let mut pose_idx = 0usize;
-            let mut comp = 0usize;
+            let mut _comp = 0usize;
             for (j, &base) in free_pose.iter().enumerate() {
                 if base != usize::MAX && base <= param_idx && param_idx < base + 2 {
                     pose_idx = j;
-                    comp = param_idx - base;
+                    _comp = param_idx - base;
                     break;
                 }
             }
             if pose_idx < s.pose_perturb.len() {
                 let p = s.pose_perturb[pose_idx];
-                if comp == 0 { s.pose_perturb[pose_idx].set_x(p.x() + eps); }
+                if _comp == 0 { s.pose_perturb[pose_idx].set_x(p.x() + eps); }
                 else { s.pose_perturb[pose_idx].set_y(p.y() + eps); }
             }
         } else {
             let td_idx = param_idx - td_offset;
-            if td_idx >= 0 && td_idx < s.td_perturb.len() {
+            if td_idx < s.td_perturb.len() {
                 s.td_perturb[td_idx] += eps;
             }
         }
@@ -394,22 +394,22 @@ impl TEBOptimizer {
         // Restore original values
         if param_idx <= max_fb + 1 {
             let mut pose_idx = 0usize;
-            let mut comp = 0usize;
+            let mut _comp = 0usize;
             for (j, &base) in free_pose.iter().enumerate() {
                 if base != usize::MAX && base <= param_idx && param_idx < base + 2 {
                     pose_idx = j;
-                    comp = param_idx - base;
+                    _comp = param_idx - base;
                     break;
                 }
             }
             if pose_idx < poses.len() {
                 let p = poses[pose_idx];
-                if comp == 0 { s.pose_perturb[pose_idx].set_x(p.x()); }
+                if _comp == 0 { s.pose_perturb[pose_idx].set_x(p.x()); }
                 else { s.pose_perturb[pose_idx].set_y(p.y()); }
             }
         } else {
             let td_idx = param_idx - td_offset;
-            if td_idx >= 0 && td_idx < timediffs.len() {
+            if td_idx < timediffs.len() {
                 s.td_perturb[td_idx] = timediffs[td_idx];
             }
         }
@@ -525,23 +525,23 @@ impl TEBOptimizer {
         for pi in 0..n {
             if pi <= max_fb + 1 {
                 let mut pose_idx = 0usize;
-                let mut comp = 0usize;
+                let mut _comp = 0usize;
                 for (j, &base) in free_pose.iter().enumerate() {
                     if base != usize::MAX && base <= pi && pi < base + 2 {
                         pose_idx = j;
-                        comp = pi - base;
+                        _comp = pi - base;
                         break;
                     }
                 }
                 if pose_idx < poses.len() {
                     let p = poses[pose_idx];
                     s.pose_save[pose_idx] = p;  // save original
-                    if comp == 0 { poses[pose_idx].set_x(x[pi]); }
+                    if _comp == 0 { poses[pose_idx].set_x(x[pi]); }
                     else { poses[pose_idx].set_y(x[pi]); }
                 }
             } else {
                 let td_idx = pi - td_offset;
-                if td_idx >= 0 && td_idx < timediffs.len() {
+                if td_idx < timediffs.len() {
                     s.td_save[td_idx] = timediffs[td_idx];  // save original
                     timediffs[td_idx] = x[pi];
                 }
@@ -560,11 +560,11 @@ impl TEBOptimizer {
         for pi in 0..n {
             if pi <= max_fb + 1 {
                 let mut pose_idx = 0usize;
-                let mut comp = 0usize;
+                let mut _comp = 0usize;
                 for (j, &base) in free_pose.iter().enumerate() {
                     if base != usize::MAX && base <= pi && pi < base + 2 {
                         pose_idx = j;
-                        comp = pi - base;
+                        _comp = pi - base;
                         break;
                     }
                 }
@@ -573,7 +573,7 @@ impl TEBOptimizer {
                 }
             } else {
                 let td_idx = pi - td_offset;
-                if td_idx >= 0 && td_idx < timediffs.len() {
+                if td_idx < timediffs.len() {
                     timediffs[td_idx] = s.td_save[td_idx];
                 }
             }
@@ -591,21 +591,21 @@ impl TEBOptimizer {
         for pi in 0..dx.len() {
             if pi <= max_fb + 1 {
                 let mut pose_idx = 0usize;
-                let mut comp = 0usize;
+                let mut _comp = 0usize;
                 for (j, &base) in free_pose.iter().enumerate() {
                     if base != usize::MAX && base <= pi && pi < base + 2 {
                         pose_idx = j;
-                        comp = pi - base;
+                        _comp = pi - base;
                         break;
                     }
                 }
                 if pose_idx < n_poses {
-                    if comp == 0 { self.band.pose_mut(pose_idx).set_x(dx[pi]); }
+                    if _comp == 0 { self.band.pose_mut(pose_idx).set_x(dx[pi]); }
                     else { self.band.pose_mut(pose_idx).set_y(dx[pi]); }
                 }
             } else {
                 let td_idx = pi - td_offset;
-                if td_idx >= 0 && td_idx < n_td {
+                if td_idx < n_td {
                     *self.band.timediff_mut(td_idx) = dx[pi];
                 }
             }

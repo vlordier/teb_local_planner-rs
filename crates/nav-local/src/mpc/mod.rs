@@ -89,7 +89,7 @@ impl MPCPlanner {
         goal: PoseSE2,
         _costmap: &Costmap,
     ) -> Option<VelocityCommand> {
-        let N = self.config.prediction_horizon;
+        let n = self.config.prediction_horizon;
         let dt = self.config.dt;
         let max_vel = self.config.constraints.max_vel_x;
         let min_vel = self.config.constraints.min_vel_x;
@@ -125,7 +125,7 @@ impl MPCPlanner {
         let n_u = 2 * N;
 
         // Build Hessian H (diagonal from R weights)
-        let mut H = DMatrix::zeros(n_u, n_u);
+        let mut h = DMatrix::zeros(n_u, n_u);
         for k in 0..N {
             let q0 = self.config.q[0] + self.config.q[1];  // position weight
             let q1 = self.config.q[2];  // theta weight

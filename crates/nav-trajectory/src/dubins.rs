@@ -170,8 +170,7 @@ pub fn sample_dubins(path: &DubinsPath, start: &PoseSE2, d: f64) -> PoseSE2 {
             pose = advance_segment(pose, seg.kind, seg.length);
             remaining -= seg.length;
         } else {
-            pose = advance_segment(pose, seg.kind, remaining);
-            remaining = 0.0;
+            return advance_segment(pose, seg.kind, remaining);
             break;
         }
     }

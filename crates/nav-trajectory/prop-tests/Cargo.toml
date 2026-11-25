@@ -7,5 +7,5 @@ publish = false
 
 [dependencies]
 nav-core.workspace = true
-nav-trajectory = { path = ".." }
+nav-trajectory.workspace = true
 proptest = "1.5"

@@ -130,7 +130,7 @@ impl MPPIPlanner {
         goal: PoseSE2,
         costmap: &Costmap,
     ) -> Option<VelocityCommand> {
-        let N = self.config.num_particles;
+        let n = self.config.num_particles;
         let horizon = self.config.prediction_horizon;
 
         // Sample particles

@@ -278,6 +278,7 @@ impl TimedElasticBand {
     /// - Splits long intervals by inserting midpoints
     /// - Merges short intervals
     ///
+    #[allow(unused_assignments)]
     /// `fast_mode` skips multi-pass refinement for speed.
     pub fn auto_resize(
         &mut self,

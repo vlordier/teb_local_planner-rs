@@ -7,15 +7,14 @@ description = "Bevy-based visualization and simulation for navigation planners"
 
 [features]
 default = []
-bevy = ["dep:bevy"]
+bevy = ["dep:bevy", "dep:nav-core", "dep:nav-local"]
 
 [dependencies]
-nalgebra.workspace = true
-nav-core.workspace = true
-nav-local.workspace = true
 
-[dependencies.bevy]
-version = "0.15"
+[dependencies.nav-core]
+workspace = true
 optional = true
-default-features = false
-features = ["bevy_winit", "bevy_render", "bevy_core_pipeline", "bevy_pbr"]
+
+[dependencies.nav-local]
+workspace = true
+optional = true

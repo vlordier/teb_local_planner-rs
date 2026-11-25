@@ -266,6 +266,7 @@ impl Trajectory {
 
     /// Initialize trajectory between start and goal poses with N intermediate samples.
     /// This is a placeholder; full init_from_plan is future work.
+    #[allow(dead_code)]
     pub(crate) fn init_to_goal(
         _start: &PoseSE2,
         _goal: &PoseSE2,
