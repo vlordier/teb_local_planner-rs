@@ -1,0 +1,9 @@
+[package]
+name = "kani-specs"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+nav-core = { path = "../crates/nav-core" }
+nav-trajectory = { path = "../crates/nav-trajectory" }

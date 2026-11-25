@@ -1,0 +1,12 @@
+[package]
+name = "nav-global-prop-tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+nav-core.workspace = true
+nav-global = { path = ".." }
+nalgebra.workspace = true
+proptest = "1.5"

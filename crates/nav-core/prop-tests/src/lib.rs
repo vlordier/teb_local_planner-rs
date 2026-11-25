@@ -1,0 +1,148 @@
+//! Proptest properties for nav-core types.
+//!
+//! - PoseSE2 arithmetic (associativity, inverse, theta normalization)
+//! - VelocityPair zero default
+//! - Trajectory push/pop data integrity
+
+mod pose_prop {
+    use nav_core::{PoseSE2, VelocityPair};
+    use proptest::prelude::*;
+
+    /// PoseSE2::add_assign is associative up to floating point epsilon.
+    #[test]
+    fn pose_se2_add_associative() {
+        proptest! {
+            fn pose_se2_add_associative(
+                a_x: f64, a_y: f64, a_t: f64,
+                b_x: f64, b_y: f64, b_t: f64,
+                c_x: f64, c_y: f64, c_t: f64,
+            ) {
+                let a = PoseSE2::from_xyz(a_x, a_y, a_t);
+                let b = PoseSE2::from_xyz(b_x, b_y, b_t);
+                let c = PoseSE2::from_xyz(c_x, c_y, c_t);
+                let lhs = a.add(&b).add(&c);
+                let rhs = a.add(&b.add(&c));
+                assert!((lhs.x() - rhs.x()).abs() < 1e-10);
+                assert!((lhs.y() - rhs.y()).abs() < 1e-10);
+                assert!((lhs.theta() - rhs.theta()).abs() < 1e-10);
+            }
+        }
+    }
+
+    /// PoseSE2::inverse is correct: a + a.inverse() == zero.
+    #[test]
+    fn pose_se2_inverse_is_zero() {
+        proptest! {
+            fn pose_se2_inverse_is_zero(x: f64, y: f64, theta: f64) {
+                let a = PoseSE2::from_xyz(x, y, theta);
+                let inv = a.inverted();
+                let result = a.add(&inv);
+                let zero = PoseSE2::zero();
+                assert!((result.x() - zero.x()).abs() < 1e-10);
+                assert!((result.y() - zero.y()).abs() < 1e-10);
+                assert!((result.theta() - zero.theta()).abs() < 1e-10);
+            }
+        }
+    }
+
+    /// PoseSE2::normalize_theta keeps theta in [-pi, pi].
+    #[test]
+    fn pose_se2_theta_in_bounds() {
+        proptest! {
+            fn pose_se2_theta_in_bounds(x: f64, y: f64, theta: f64) {
+                let p = PoseSE2::from_xyz(x, y, theta);
+                let pi = std::f64::consts::PI;
+                assert!(p.theta() >= -pi && p.theta() <= pi);
+            }
+        }
+    }
+
+    /// VelocityPair::zero has all components zero by default.
+    #[test]
+    fn velocity_pair_zero_components() {
+        let vp = VelocityPair::zero();
+        assert_eq!(vp.vx, 0.0);
+        assert_eq!(vp.vy, 0.0);
+        assert_eq!(vp.omega, 0.0);
+    }
+
+    /// VelocityPair::default equals zero.
+    #[test]
+    fn velocity_pair_default_is_zero() {
+        let vp = VelocityPair::default();
+        assert_eq!(vp.vx, 0.0);
+        assert_eq!(vp.vy, 0.0);
+        assert_eq!(vp.omega, 0.0);
+    }
+}
+
+mod trajectory_prop {
+    use nav_core::{PoseSE2, Trajectory};
+    use proptest::prelude::*;
+
+    /// Trajectory push preserves data integrity.
+    #[test]
+    fn trajectory_push_preserves_data() {
+        proptest! {
+            fn trajectory_push_preserves_data(x: f64, y: f64, theta: f64) {
+                let mut traj = Trajectory::new();
+                let orig = PoseSE2::from_xyz(x, y, theta);
+                traj.add_pose(orig);
+                let ret = traj.pose(0).clone();
+                assert!((ret.x() - x).abs() < 1e-10);
+                assert!((ret.y() - y).abs() < 1e-10);
+                assert!((ret.theta() - theta).abs() < 1e-10);
+            }
+        }
+    }
+
+    /// Trajectory with multiple poses preserves ordering.
+    #[test]
+    fn trajectory_multiple_poses_ordered() {
+        proptest! {
+            fn trajectory_multiple_poses_ordered(
+                p1_x: f64, p1_y: f64, p1_t: f64,
+                p2_x: f64, p2_y: f64, p2_t: f64,
+                p3_x: f64, p3_y: f64, p3_t: f64,
+            ) {
+                let mut traj = Trajectory::new();
+                let poses = [
+                    PoseSE2::from_xyz(p1_x, p1_y, p1_t),
+                    PoseSE2::from_xyz(p2_x, p2_y, p2_t),
+                    PoseSE2::from_xyz(p3_x, p3_y, p3_t),
+                ];
+                for p in &poses {
+                    traj.add_pose(*p);
+                }
+                for (i, orig) in poses.iter().enumerate() {
+                    let r = traj.pose(i);
+                    assert!((r.x() - orig.x()).abs() < 1e-10);
+                    assert!((r.y() - orig.y()).abs() < 1e-10);
+                    assert!((r.theta() - orig.theta()).abs() < 1e-10);
+                }
+            }
+        }
+    }
+
+    /// Trajectory::remove_pose preserves remaining pose integrity.
+    #[test]
+    fn trajectory_remove_preserves_remaining() {
+        proptest! {
+            fn trajectory_remove_preserves_remaining(
+                x1: f64, y1: f64, t1: f64,
+                x2: f64, y2: f64, t2: f64,
+            ) {
+                let mut traj = Trajectory::new();
+                traj.add_pose(PoseSE2::from_xyz(x1, y1, t1));
+                traj.add_pose(PoseSE2::from_xyz(x2, y2, t2));
+                assert_eq!(traj.size_poses(), 2);
+                traj.remove_pose(0);
+                assert_eq!(traj.size_poses(), 1);
+                let r = traj.pose(0);
+                assert!((r.x() - x2).abs() < 1e-10);
+                assert!((r.y() - y2).abs() < 1e-10);
+                assert!((r.theta() - t2).abs() < 1e-10);
+            }
+        }
+    }
+}
