@@ -41,6 +41,7 @@ glam = "0.29"
 
 # Formal verification
 proptest = "1.5"
+criterion = "0.5"
 bevy = "0.15"
 
 # Workspace crates
