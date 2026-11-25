@@ -1179,7 +1179,139 @@ impl EdgeEnum {
                 }
                 true
             }
+            EdgeEnum::Acceleration(p) => {
+                if p.weight_lin <= 0.0 && p.weight_ang <= 0.0 { return true; }
+                let dt1 = timediffs[p.idx_dt_0];
+                let dt2 = timediffs[p.idx_dt_1];
+                let dt_sum = dt1 + dt2;
+                if dt1 <= 1e-10 || dt2 <= 1e-10 { return true; }
+                let p0 = &poses[p.idx_0];
+                let p1 = &poses[p.idx_1];
+                let p2 = &poses[p.idx_2];
+                // Compute v1, v2 via same formulas as error()
+                let diff1_x = p1.x() - p0.x();
+                let diff1_y = p1.y() - p0.y();
+                let dist1 = (diff1_x * diff1_x + diff1_y * diff1_y).sqrt();
+                let angle_diff1 = crate::teb::math::normalize_theta(p1.theta() - p0.theta());
+                let sig1 = crate::teb::math::fast_sigmoid(100.0 * (diff1_x * p0.theta().cos() + diff1_y * p0.theta().sin()));
+                let vel1 = dist1 / dt1 * sig1;
+                let omega1 = angle_diff1 / dt1;
+                let diff2_x = p2.x() - p1.x();
+                let diff2_y = p2.y() - p1.y();
+                let dist2 = (diff2_x * diff2_x + diff2_y * diff2_y).sqrt();
+                let angle_diff2 = crate::teb::math::normalize_theta(p2.theta() - p1.theta());
+                let sig2 = crate::teb::math::fast_sigmoid(100.0 * (diff2_x * p1.theta().cos() + diff2_y * p1.theta().sin()));
+                let vel2 = dist2 / dt2 * sig2;
+                let omega2 = angle_diff2 / dt2;
+                let acc_lin = (vel2 - vel1) * 2.0 / dt_sum;
+                // d(a_lin)/d(pos) = 2/(dt1+dt2) * d(vel2-vel1)/d(pos)
+                let da_lin = 2.0 / dt_sum;
+                // Penalty derivative: penalty_bound_to_interval_symmetric_deriv
+                let abs_a = acc_lin.abs();
+                let d_a_err = if abs_a > p.acc_lim_lin * 1.01 {
+                    acc_lin.signum()
+                } else if abs_a < p.acc_lim_lin {
+                    0.0
+                } else {
+                    let t = (abs_a - p.acc_lim_lin) / (p.acc_lim_lin * 0.01);
+                    t * t * acc_lin.signum()
+                };
+                // Map to Jacobian columns
+                // dvel1/d(x0) = (-diff1_x/dist1 * sig1 + dist1 * dsig1/...) / dt1
+                // dvel1/d(y0) similarly
+                // dvel1/d(x1) = (diff1_x/dist1 * sig1) / dt1
+                // dvel1/d(y1) = (diff1_y/dist1 * sig1) / dt1
+                // dvel2/d(x1) = (-diff2_x/dist2 * sig2) / dt2
+                // dvel2/d(y1) = (-diff2_y/dist2 * sig2) / dt2
+                // dvel2/d(x2) = (diff2_x/dist2 * sig2) / dt2
+                // dvel2/d(y2) = (diff2_y/dist2 * sig2) / dt2
+                // dvel1/d(x0) = (-diff1_x/dist1 * sig1) / dt1
+                let dvel1_dx0 = (-diff1_x / dist1.max(1e-12)) * sig1 / dt1;
+                let dvel1_dy0 = (-diff1_y / dist1.max(1e-12)) * sig1 / dt1;
+                let dvel1_dx1 = (diff1_x / dist1.max(1e-12)) * sig1 / dt1;
+                let dvel1_dy1 = (diff1_y / dist1.max(1e-12)) * sig1 / dt1;
+                let dvel2_dx1 = (-diff2_x / dist2.max(1e-12)) * sig2 / dt2;
+                let dvel2_dy1 = (-diff2_y / dist2.max(1e-12)) * sig2 / dt2;
+                let dvel2_dx2 = (diff2_x / dist2.max(1e-12)) * sig2 / dt2;
+                let dvel2_dy2 = (diff2_y / dist2.max(1e-12)) * sig2 / dt2;
+                if p.idx_0 > 0 && p.idx_0 < poses.len() - 1 {
+                    let f = p.idx_0 - 1;
+                    let cx = f * 2;
+                    if cx < n_params { jac[cx * n_residuals + 0] = da_lin * d_a_err * dvel1_dx0; }
+                    if cx + 1 < n_params { jac[(cx + 1) * n_residuals + 0] = da_lin * d_a_err * dvel1_dy0; }
+                }
+                if p.idx_1 > 0 && p.idx_1 < poses.len() - 1 {
+                    let f = p.idx_1 - 1;
+                    let cx = f * 2;
+                    if cx < n_params { jac[cx * n_residuals + 0] = da_lin * d_a_err * (dvel1_dx1 + dvel2_dx1); }
+                    if cx + 1 < n_params { jac[(cx + 1) * n_residuals + 0] = da_lin * d_a_err * (dvel1_dy1 + dvel2_dy1); }
+                }
+                if p.idx_2 > 0 && p.idx_2 < poses.len() - 1 {
+                    let f = p.idx_2 - 1;
+                    let cx = f * 2;
+                    if cx < n_params { jac[cx * n_residuals + 0] = da_lin * d_a_err * dvel2_dx2; }
+                    if cx + 1 < n_params { jac[(cx + 1) * n_residuals + 0] = da_lin * d_a_err * dvel2_dy2; }
+                }
+                let n_free = if poses.len() > 2 { poses.len() - 3 } else { 0 };
+                let td_off = 2 * n_free;
+                let gi0 = td_off + p.idx_dt_0;
+                if gi0 < n_params { jac[gi0 * n_residuals + 0] = da_lin * d_a_err * (-2.0 * vel1 / (dt1 * dt1)); }
+                let gi1 = td_off + p.idx_dt_1;
+                if gi1 < n_params { jac[gi1 * n_residuals + 0] = da_lin * d_a_err * (-2.0 * vel2 / (dt2 * dt2)); }
+                true
+            }
+            EdgeEnum::KinematicsDiffDrive(p) => {
+                if p.weight_nh <= 0.0 && p.weight_fwd <= 0.0 { return true; }
+                self._kinematics_jac_into(p.idx_start, p.idx_end, poses, n_params, n_residuals, jac);
+                true
+            }
+            EdgeEnum::KinematicsCarlike(p) => {
+                if p.weight_nh <= 0.0 && p.weight_turning <= 0.0 { return true; }
+                self._kinematics_jac_into(p.idx_start, p.idx_end, poses, n_params, n_residuals, jac);
+                true
+            }
             _ => false,
         }
+    }
+
+    /// Helper for KinematicsDiffDrive and KinematicsCarlike analytical Jacobian.
+    #[inline]
+    fn _kinematics_jac_into(&self, idx_start: usize, idx_end: usize,
+                            poses: &[crate::teb::pose_se2::PoseSe2],
+                            n_params: usize, n_residuals: usize,
+                            jac: &mut [f64]) {
+        if idx_start == 0 || idx_start >= poses.len() - 1 { return; }
+        if idx_end == 0 || idx_end >= poses.len() - 1 { return; }
+        let p1 = &poses[idx_start];
+        let p2 = &poses[idx_end];
+        let dx = p2.x() - p1.x();
+        let dy = p2.y() - p1.y();
+        let c1 = p1.theta().cos();
+        let s1 = p1.theta().sin();
+        let c2 = p2.theta().cos();
+        let s2 = p2.theta().sin();
+        // nh = ((c1+c2)*dy - (s1+s2)*dx).abs()
+        let nh_raw = (c1 + c2) * dy - (s1 + s2) * dx;
+        let sign_nh = if nh_raw >= 0.0 { 1.0 } else { -1.0 };
+        let fwd_raw = dx * c1 + dy * s1;
+        let d_fwd = if fwd_raw > 0.0 { 1.0 } else { 0.0 };
+        // d(nh)/d(p1.x) = s1+s2, d/d(p1.y) = -(c1+c2)
+        // d(nh)/d(p2.x) = -(s1+s2), d/d(p2.y) = c1+c2
+        // d(fwd)/d(p1.x) = -c1, d/d(p1.y) = 0
+        // d(fwd)/d(p2.x) = c1, d/d(p2.y) = s1
+        let fpi = idx_start - 1;
+        let fpn = idx_end - 1;
+        let cx1 = fpi * 2;
+        let cy1 = cx1 + 1;
+        let cx2 = fpn * 2;
+        let cy2 = cx2 + 1;
+        if cx1 < n_params { jac[cx1 * n_residuals + 0] = sign_nh * (s1 + s2); }
+        if cy1 < n_params { jac[cy1 * n_residuals + 0] = sign_nh * (-(c1 + c2)); }
+        if cx1 < n_params { jac[cx1 * n_residuals + 1] = d_fwd * (-c1); }
+        if cy1 < n_params { jac[cy1 * n_residuals + 1] = d_fwd * 0.0; }
+        if cx2 < n_params { jac[cx2 * n_residuals + 0] = sign_nh * (-(s1 + s2)); }
+        if cy2 < n_params { jac[cy2 * n_residuals + 0] = sign_nh * (c1 + c2); }
+        if cx2 < n_params { jac[cx2 * n_residuals + 1] = d_fwd * c1; }
+        if cy2 < n_params { jac[cy2 * n_residuals + 1] = d_fwd * s1; }
     }
 }

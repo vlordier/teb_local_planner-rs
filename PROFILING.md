@@ -370,3 +370,34 @@ For 20 poses:
 | Acceleration | 18 | Finite-difference |
 | Kinematics | 19 | Finite-difference |
 | **Total** | **94** | **57/94 = 61% analytical** |
+
+## Optimization Applied: Acceleration + Kinematics Analytical Jacobians
+
+### Acceleration Edge
+- Analytical derivatives of `a_lin = 2*(vel2 - vel1)/(dt1 + dt2)`
+- `dvel1/dx0 = -diff1_x/dist * sig1 / dt1`, `dvel1/dx1 = diff1_x/dist * sig1 / dt1`
+- `dvel2/dx1 = -diff2_x/dist * sig2 / dt2`, `dvel2/dx2 = diff2_x/dist * sig2 / dt2`
+- Time derivatives: `dvel1/dt1 = -vel1/t1`, `dvel2/dt2 = -vel2/t2`
+- Penalty derivative computed inline for `penalty_bound_to_interval_symmetric`
+
+### Kinematics Edges (DiffDrive + Carlike share same formula)
+- `nh = ((cos1+cos2)*dy - (sin1+sin2)*dx).abs()`
+- `fwd = penalty(dx*cos1 + dy*sin1, 0, 0)`
+- `d(nh)/d(x1) = sin1+sin2`, `d(nh)/d(y1) = -(cos1+cos2)`
+- `d(nh)/d(x2) = -(sin1+sin2)`, `d(nh)/d(y2) = cos1+cos2`
+- `d(fwd)/d(x1) = -cos1`, `d(fwd)/d(x2) = cos1`, `d(fwd)/d(y2) = sin1`
+- Shared `_kinematics_jac_into()` helper for both variants
+
+### Final Coverage
+| Edge Type | Count | Jacobian |
+|---|---|---|
+| TimeOptimal | 19 | Analytical ✅ |
+| ShortestPath | 19 | Analytical ✅ |
+| Velocity | 19 | Analytical ✅ |
+| **Acceleration** | **18** | **Analytical ✅ (new)** |
+| **Kinematics (Diff+Car)** | **19** | **Analytical ✅ (new)** |
+| Obstacle | ~2 | Finite-difference |
+| PreferRotDir | ~1 | Finite-difference |
+| ViaPoint | ~1 | Finite-difference |
+| DynamicObstacle | ~1 | Finite-difference |
+| **Total** | **~99** | **~75/99 = 76% analytical** |
