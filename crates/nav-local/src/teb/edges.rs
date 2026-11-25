@@ -1028,4 +1028,33 @@ impl EdgeEnum {
             EdgeEnum::DynamicObstacle(p) => p.weight > 0.0,
         }
     }
+    /// Compute analytical Jacobian columns for edges where derivatives are known.
+    #[inline]
+    pub fn compute_jac_into(&self, poses: &[crate::teb::pose_se2::PoseSe2],
+                            _timediffs: &[f64], jac: &mut [f64], n_params: usize,
+                            n_residuals: usize) -> bool {
+        match self {
+            EdgeEnum::TimeOptimal(p) => {
+                if p.weight <= 0.0 { return true; }
+                if p.idx_timediff < n_params {
+                    jac[p.idx_timediff * n_residuals] = 1.0;
+                }
+                true
+            }
+            EdgeEnum::ShortestPath(p) => {
+                if p.idx_prev > 0 && p.idx_prev < poses.len() - 1 {
+                    let fpi = p.idx_prev - 1;
+                    jac[fpi * 2 * n_residuals] = -1.0;
+                    jac[(fpi * 2 + 1) * n_residuals + 1] = -1.0;
+                }
+                if p.idx_next > 0 && p.idx_next < poses.len() - 1 {
+                    let fpn = p.idx_next - 1;
+                    jac[fpn * 2 * n_residuals] = 1.0;
+                    jac[(fpn * 2 + 1) * n_residuals + 1] = 1.0;
+                }
+                true
+            }
+            _ => false,
+        }
+    }
 }

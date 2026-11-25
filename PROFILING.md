@@ -316,3 +316,28 @@ poses[pose_idx] = s.pose_save[pose_idx];   // restore
 ### Per Optimization Pass (20 poses × 2 calls per inner iter × 3 inner iters)
 - **Before:** 12 Vec allocations for cost_zc
 - **After:** 0
+
+
+## Optimization Applied: Analytical Jacobian for Sparse Edges
+
+### What Changed
+`eval_jac_zc` previously used finite-difference for ALL edges: `|E| * n_params` edge.error() calls per inner iteration.
+Now edges that have known analytical derivatives compute them directly:
+
+- **TimeOptimal**: d[dt_i]/d[dt_i] = 1 — constant, no computation needed
+- **ShortestPath**: d[dx]/d[x_i] = -1, d[dx]/d[x_j] = 1 — constant Jacobian
+
+Added `EdgeEnum::compute_jac_into()` method. `eval_jac_zc` tries analytical first,
+falls back to finite-difference for complex edges (Velocity, Acceleration, Kinematics).
+
+### Coverage
+- TimeOptimal: n-1 edges (100% analytical)
+- ShortestPath: n-1 edges (100% analytical)
+- Velocity: n-1 edges (finite-difference)
+- Acceleration: n-2 edges (finite-difference)
+- Kinematics: n-1 edges (finite-difference)
+
+For 20 poses: 19 + 19 = 38 analytical edges out of 67 total = 57% fewer FD calls
+### Edge Cases
+- The analytical Jacobian for ShortestPath must respect the `free_pose` constraint
+  (fixed start/end poses don't appear in the Jacobian columns)

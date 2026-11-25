@@ -332,6 +332,7 @@ impl TEBOptimizer {
         s.residuals.clear();
         s.zero_jacobian(n_params, s.residuals.capacity().max(1));
 
+        let nr = 2; // all edges return [f64; 2]
         let max_fb = free_pose.iter().filter(|&&b| b != usize::MAX).copied().max().unwrap_or(0);
 
         for edge in edges {
@@ -339,6 +340,13 @@ impl TEBOptimizer {
             let e = edge.error(poses, timediffs);
             s.residuals.push(e[0]);
             s.residuals.push(e[1]);
+
+            // Try analytical Jacobian first (sparse, direct computation)
+            if edge.compute_jac_into(poses, timediffs, &mut s.jacobian_flat, n_params, nr) {
+                continue; // analytical Jacobian computed, skip finite-difference
+            }
+
+            // Finite-difference for complex edges (velocity, acceleration, kinematics)
             for pi in 0..n_params {
                 Self::fd_col_into(s, edge, pi, poses, timediffs, free_pose, td_offset, max_fb, n_params, pi);
             }
