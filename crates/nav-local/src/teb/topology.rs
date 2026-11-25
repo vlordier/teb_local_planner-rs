@@ -1,3 +1,4 @@
+#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments, unreachable_patterns)]
 //! Topology handling and homotopy class planning.
 //!
 //! Ported from C++ `homotopy_class_planner.cpp`, `h_signature.h`, and `graph_search.h`.
@@ -65,7 +66,7 @@ impl HSignature {
 
     /// Check if two H-signatures are approximately equal.
     pub fn is_equal(&self, other: &Self, threshold: f64) -> bool {
-        let diff = (self.signature - other.signature);
+        let diff = self.signature - other.signature;
         diff.re.abs() < threshold && diff.im.abs() < threshold
     }
 

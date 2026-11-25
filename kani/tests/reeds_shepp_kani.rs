@@ -1,3 +1,4 @@
+
 //! Kani verification properties for Reeds-Shepp path generation.
 //!
 //! NOTE: The Reeds-Shepp implementation calls FFI math functions (`hypot`,
@@ -10,6 +11,9 @@
 //! see https://github.com/model-checking/kani/issues/2423
 
 #![no_main]
+
+extern crate nav_core;
+extern crate nav_trajectory;
 
 mod reeds_shepp_kani {
     use nav_trajectory::{RSParameters, RSPathType, RSSegment, SegmentType};

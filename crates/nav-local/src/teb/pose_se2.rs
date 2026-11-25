@@ -1,3 +1,4 @@
+#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments, unreachable_patterns)]
 //! SE2 pose type for the Timed Elastic Band.
 //!
 //! Ported from C++ `pose_se2.h`.

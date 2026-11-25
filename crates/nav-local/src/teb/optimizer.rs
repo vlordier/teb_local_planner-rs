@@ -1,3 +1,4 @@
+#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments, unreachable_patterns)]
 //! TEB optimizer: Levenberg-Marquardt loop with iterative weight adaptation.
 //!
 //! Ported from C++ `optimal_planner.cpp`: optimizeTEB, optimizeGraph, buildGraph.
@@ -42,9 +43,9 @@ pub struct ScratchBuffers {
     /// Difference vector dx computed by LM solver (also holds x and Atb during computation).
     dx: Vec<f64>,
     /// Normal equation matrix AtA (symmetric, flat n*n).
-    Ata: Vec<f64>,
+    ata: Vec<f64>,
     /// Normal equation vector Atb.
-    Atb: Vec<f64>,
+    atb: Vec<f64>,
     /// Temp buffer for pose save/restore in cost_zc.
     pose_save: Vec<PoseSe2>,
     /// Temp buffer for timediff save/restore in cost_zc.
@@ -60,8 +61,8 @@ impl ScratchBuffers {
             pose_perturb: vec![PoseSe2::zero(); n_poses.max(1)],
             td_perturb: vec![0.0f64; n_timediffs.max(1)],
             dx: vec![0.0f64; n_params.max(1)],
-            Ata: vec![0.0f64; n_params.max(1) * n_params.max(1)],
-            Atb: vec![0.0f64; n_params.max(1)],
+            ata: vec![0.0f64; n_params.max(1) * n_params.max(1)],
+            atb: vec![0.0f64; n_params.max(1)],
             pose_save: vec![PoseSe2::zero(); n_poses.max(1)],
             td_save: vec![0.0f64; n_timediffs.max(1)],
         }
@@ -295,7 +296,7 @@ impl TEBOptimizer {
 
             // Damped: Ata *= (1 + lambda)
             for i in 0..n_params {
-                self.scratch.Ata[i * n_params + i] *= (1.0 + lambda);
+                self.scratch.ata[i * n_params + i] *= (1.0 + lambda);
             }
 
             self.solve_zc(n_params);
@@ -309,7 +310,7 @@ impl TEBOptimizer {
 
             if cost_new < cost_old {
                 let rho = 0.5 * self.scratch.dx[..n_params].iter()
-                    .zip(self.scratch.Atb.iter())
+                    .zip(self.scratch.atb.iter())
                     .map(|(a, b)| a * b).sum::<f64>();
                 let rho = if rho.abs() > 1e-20 { (cost_old - cost_new) / rho } else { 0.0 };
                 let factor = if rho > 0.0 { (1.0 - 2.0 * rho).max(0.333) } else { 2.0 };
@@ -419,15 +420,15 @@ impl TEBOptimizer {
         let s = &mut self.scratch;
         let nr = s.residuals.len();
         // Zero AtA and Atb
-        for i in 0..n * n { s.Ata[i] = 0.0; }
-        for i in 0..n { s.Atb[i] = 0.0; }
+        for i in 0..n * n { s.ata[i] = 0.0; }
+        for i in 0..n { s.atb[i] = 0.0; }
 
         // Atb = J^T * e
         for ci in 0..n {
             for ri in 0..nr {
                 let off = ci * nr + ri;
                 if off < s.jacobian_flat.len() {
-                    s.Atb[ci] += s.jacobian_flat[off] * s.residuals[ri];
+                    s.atb[ci] += s.jacobian_flat[off] * s.residuals[ri];
                 }
             }
         }
@@ -443,8 +444,8 @@ impl TEBOptimizer {
                         prod += s.jacobian_flat[o1] * s.jacobian_flat[o2];
                     }
                 }
-                s.Ata[ci * n + cj] = prod;
-                if cj != ci { s.Ata[cj * n + ci] = prod; }
+                s.ata[ci * n + cj] = prod;
+                if cj != ci { s.ata[cj * n + ci] = prod; }
             }
         }
     }
@@ -456,8 +457,8 @@ impl TEBOptimizer {
     fn solve_zc(&mut self, n: usize) {
         if n == 0 { return; }
         let s = &mut self.scratch;
-        let a = &mut s.Ata[..n * n]; // flat row-major matrix
-        let b = &mut s.Atb[..n];     // flat RHS vector
+        let a = &mut s.ata[..n * n]; // flat row-major matrix
+        let b = &mut s.atb[..n];     // flat RHS vector
 
         // LU decomposition with partial pivoting (in-place on a[])
         // Row-major: element (r,c) = a[r * n + c]

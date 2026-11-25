@@ -1,3 +1,4 @@
+#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments, unreachable_patterns)]
 //! Obstacle representation and distance queries.
 //!
 //! Ported from C++ `obstacles.h` and `obstacles.cpp`.

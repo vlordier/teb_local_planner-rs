@@ -1,3 +1,4 @@
+#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments)]
 //! Proptest properties for nav-core types.
 //!
 //! - PoseSE2 arithmetic (associativity, inverse, theta normalization)

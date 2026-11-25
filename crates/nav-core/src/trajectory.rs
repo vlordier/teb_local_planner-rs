@@ -1,3 +1,4 @@
+#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments, unreachable_patterns)]
 //! Trajectory type for TEB: a sequence of poses with time differences.
 //!
 //! Ported from `timed_elastic_band.h` and the trajectory-related sections

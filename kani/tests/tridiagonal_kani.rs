@@ -1,3 +1,4 @@
+
 //! Kani verification properties for tridiagonal solver used in cubic splines.
 //!
 //! The tridiagonal solver (`_solve_tridiagonal`) is private, so we verify its
@@ -5,6 +6,9 @@
 //! coefficients that yield finite results for well-conditioned inputs.
 
 #![no_main]
+
+extern crate nav_core;
+extern crate nav_trajectory;
 
 mod tridiagonal_kani {
     use nav_trajectory::CubicSpline1D;

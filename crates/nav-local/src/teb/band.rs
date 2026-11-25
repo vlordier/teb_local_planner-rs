@@ -1,3 +1,4 @@
+#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments, unreachable_patterns)]
 //! Timed Elastic Band data structure.
 //!
 //! Ported from C++ `timed_elastic_band.h` and `timed_elastic_band.cpp`.

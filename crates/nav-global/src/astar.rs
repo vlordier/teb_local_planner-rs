@@ -1,3 +1,4 @@
+#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments, unreachable_patterns)]
 //! A* search on a grid map with 4- or 8-connected neighborhood.
 //!
 //! Ported from teb_local_planner's graph-based search paradigm, adapted for

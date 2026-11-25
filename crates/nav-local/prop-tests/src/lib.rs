@@ -1,3 +1,4 @@
+#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments)]
 //! Proptest properties for nav-local algorithms.
 //!
 //! - TEB band autoResize preserves start/end

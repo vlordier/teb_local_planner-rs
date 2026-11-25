@@ -1,3 +1,4 @@
+#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments, unreachable_patterns)]
 //! TebConfig: all constraint/configuration structs for the TEB planner.
 //!
 //! Ported from `teb_config.h` and `teb_config.cpp` with exact default values.

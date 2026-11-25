@@ -7,13 +7,8 @@ description = "Local planners: TEB (Timed Elastic Band), DWA, MPC, MPPI"
 
 [dependencies]
 nalgebra.workspace = true
-faer.workspace = true
-argmin.workspace = true
-levenberg-marquardt.workspace = true
 parry3d.workspace = true
-rayon.workspace = true
 approx = "0.5"
 nav-core.workspace = true
-nav-trajectory.workspace = true
 rand = "0.10"
 num-traits = "0.2"

@@ -6,7 +6,6 @@ license.workspace = true
 
 [dependencies]
 nav-core.workspace = true
-nav-trajectory.workspace = true
 libfuzzer-sys = "0.4"
 
 [lib]

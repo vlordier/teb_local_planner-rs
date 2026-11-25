@@ -13,8 +13,6 @@ bevy = ["dep:bevy"]
 nalgebra.workspace = true
 nav-core.workspace = true
 nav-local.workspace = true
-nav-global.workspace = true
-nav-trajectory.workspace = true
 
 [dependencies.bevy]
 version = "0.15"

@@ -1,3 +1,4 @@
+
 //! Kani verification properties for Dubins path generation.
 //!
 //! Uses concrete f64 values to avoid CBMC floatbv limitations.
@@ -5,6 +6,9 @@
 //! transcendental function calls (hypot, sin, cos, atan2) that CBMC cannot model.
 
 #![no_main]
+
+extern crate nav_core;
+extern crate nav_trajectory;
 
 mod kubins_kani {
     use nav_core::PoseSE2;

@@ -1,3 +1,4 @@
+
 //! Kani verification properties for PoseSE2.
 //!
 //! Source code NaN guards handle NaN/Inf gracefully:
@@ -10,6 +11,9 @@
 //! does not panic on any input.
 
 #![no_main]
+
+extern crate nav_core;
+extern crate nav_trajectory;
 
 mod pose_se2_kani {
     use nav_core::PoseSE2;

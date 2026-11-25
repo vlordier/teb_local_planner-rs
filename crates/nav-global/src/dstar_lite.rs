@@ -1,3 +1,4 @@
+#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments, unreachable_patterns)]
 //! D* Lite incremental replanning for dynamic maps.
 //!
 //! Ported from the D* Lite algorithm (Koenig & Likhachev, 2005).

@@ -1,3 +1,4 @@
+#![allow(unused_variables, unused_imports, dead_code, unused_mut, unused_assignments, unreachable_patterns)]
 //! nav-local: local planners — TEB, DWA, MPC, MPPI.
 //!
 //! TEB implementation (port of teb_local_planner C++):

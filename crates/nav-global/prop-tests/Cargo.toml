@@ -6,7 +6,6 @@ license.workspace = true
 publish = false
 
 [dependencies]
-nav-core.workspace = true
 nav-global = { path = ".." }
 nalgebra.workspace = true
 proptest = "1.5"

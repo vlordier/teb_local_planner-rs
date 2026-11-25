@@ -1,3 +1,4 @@
+
 //! Kani verification properties for CubicSpline1D interpolation.
 //!
 //! Uses concrete sizes to avoid CBMC exponential blowup from symbolic Vec allocation.
@@ -7,6 +8,9 @@
 //! produce finite, bounded results.
 
 #![no_main]
+
+extern crate nav_core;
+extern crate nav_trajectory;
 
 mod cubic_spline_kani {
     use nav_trajectory::CubicSpline1D;
