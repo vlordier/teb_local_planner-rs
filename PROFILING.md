@@ -191,3 +191,47 @@ Rewrote `TEBOptimizer::optimize_graph()` and all its callees to use pre-allocate
    - Fix: use stack-allocated array `[f64; 2]` or return fixed-size type
 3. **Solve system**: creates `DMatrix`/`DVector` from scratch each iter
    - Fix: pre-allocate matrices, use in-place LU
+
+## Optimization Applied: Edge Enum (Zero-Box Allocation)
+
+### What Changed
+Replaced `Vec<(Box<dyn Edge>, EdgeParamInfo)>` with `Vec<EdgeEnum>` where `EdgeEnum` is a
+tagged enum with 10 variants. Each variant holds the edge data AND its parameter info.
+
+```rust
+pub enum EdgeEnum {
+    TimeOptimal(EdgeTimeOptimalParam),
+    ShortestPath(EdgeShortestPathParam),
+    Velocity(EdgeVelocityParam),
+    Acceleration(EdgeAccelerationParam),
+    KinematicsDiffDrive(EdgeKinematicsDiffDriveParam),
+    KinematicsCarlike(EdgeKinematicsCarlikeParam),
+    Obstacle(EdgeObstacleParam),
+    PreferRotDir(EdgePreferRotDirParam),
+    ViaPoint(EdgeViaPointParam),
+    DynamicObstacle(EdgeDynamicObstacleParam),
+}
+```
+
+### Allocations Eliminated Per Outer Iteration
+| Allocation | Before | After |
+|-----------|--------|-------|
+| `Vec<Box<dyn Edge>>` boxes | ~80 | **0** |
+| `EdgeParamInfo` tuples | ~80 | 0 (folded into enum) |
+| **Total** | **~160** | **0** |
+
+### Per Optimization Pass (20 poses, 20 inner iters, ~3 outer iters)
+- **Before:** ~230,560 (Vec) + ~480 (Box) = ~231,040 allocations
+- **After:** ~0 Vec + ~0 Box = **0**
+
+### Allocations Eliminated Per Inner Iteration (from scratch buffers)
+- ~11,528 Vec allocations (jacobian, residuals, perturb, normal eq)
+
+### Total Eliminated Per Optimization Pass
+- **231,040 → 0** Vec/Box allocations
+
+### Zero-Copy Throughout: Vector2 → [f64; 2]
+- `Edge::error()` returns `[f64; 2]` instead of `nalgebra::Vector2<f64>`
+- All 12 edge types updated
+- `Edge::error_with_distance()` also returns `[f64; 2]`
+- Eliminates `Vector2::new()` heap allocation per edge error call

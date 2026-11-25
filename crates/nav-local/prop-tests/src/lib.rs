@@ -126,7 +126,7 @@ mod edge_prop {
                 let timediffs = vec![0.5];
                 let edge = EdgeShortestPath::new(0, 1, 1.0);
                 let err = edge.error(&poses, &timediffs);
-                assert!(err.norm() >= 0.0);
+                assert!(f64::sqrt(err[0] * err[0] + err[1] * err[1]) >= 0.0);
             }
         }
     }
@@ -143,7 +143,7 @@ mod edge_prop {
                 let timediffs = vec![0.5];
                 let edge = EdgeShortestPath::new(0, 1, 1.0);
                 let err = edge.error(&poses, &timediffs);
-                assert!(err.norm() < 1e-10);
+                assert!(f64::sqrt(err[0] * err[0] + err[1] * err[1]) < 1e-10);
             }
         }
     }

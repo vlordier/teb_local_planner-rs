@@ -204,12 +204,12 @@ pub trait Edge {
     fn vertex_indices(&self) -> &[usize];
 
     /// Compute the error (residual) vector.
-    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], timediffs: &[f64]) -> nalgebra::Vector2<f64>;
+    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], timediffs: &[f64]) -> [f64; 2];
 
     /// Compute the weighted error (chi^2 contribution).
     fn chi2(&self, poses: &[crate::teb::pose_se2::PoseSe2], timediffs: &[f64], weight: f64) -> f64 {
         let e = self.error(poses, timediffs);
-        e.iter().map(|v| v * v).sum::<f64>() * weight
+        e[0] * e[0] + e[1] * e[1] * weight
     }
 
     /// Get the weight/information matrix diagonal.
@@ -241,9 +241,9 @@ impl EdgeShortestPath {
 impl Edge for EdgeShortestPath {
     fn num_vertices(&self) -> usize { 2 }
     fn vertex_indices(&self) -> &[usize] { &[] }
-    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], _timediffs: &[f64]) -> nalgebra::Vector2<f64> {
+    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], _timediffs: &[f64]) -> [f64; 2] {
         let delta = poses[self.idx_next].position() - poses[self.idx_prev].position();
-        delta
+        [delta[0], delta[1]]
     }
     fn weight_diag(&self) -> &[f64] { &[] }
     fn enabled(&self) -> bool { self.weight > 0.0 }
@@ -265,8 +265,8 @@ impl EdgeTimeOptimal {
 impl Edge for EdgeTimeOptimal {
     fn num_vertices(&self) -> usize { 1 }
     fn vertex_indices(&self) -> &[usize] { &[] }
-    fn error(&self, _poses: &[crate::teb::pose_se2::PoseSe2], timediffs: &[f64]) -> nalgebra::Vector2<f64> {
-        nalgebra::Vector2::new(timediffs[self.idx_timediff], 0.0)
+    fn error(&self, _poses: &[crate::teb::pose_se2::PoseSe2], timediffs: &[f64]) -> [f64; 2] {
+        [timediffs[self.idx_timediff], 0.0]
     }
     fn weight_diag(&self) -> &[f64] { &[] }
     fn enabled(&self) -> bool { self.weight > 0.0 }
@@ -313,12 +313,12 @@ impl Edge for EdgeVelocity {
     fn num_vertices(&self) -> usize { 3 }
     fn vertex_indices(&self) -> &[usize] { &[] }
 
-    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], timediffs: &[f64]) -> nalgebra::Vector2<f64> {
+    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], timediffs: &[f64]) -> [f64; 2] {
         let p1 = &poses[self.idx_start];
         let p2 = &poses[self.idx_end];
         let dt = timediffs[self.idx_timediff];
         if dt <= 0.0 {
-            return nalgebra::Vector2::new(f64::MAX, f64::MAX);
+            return [f64::MAX, f64::MAX];
         }
 
         let delta = p2.position() - p1.position();
@@ -346,7 +346,7 @@ impl Edge for EdgeVelocity {
 
         let w_err = crate::teb::math::penalty_bound_from_below(omega.abs(), self.max_vel_theta, 0.01);
 
-        nalgebra::Vector2::new(v_err, w_err)
+        [v_err, w_err]
     }
 
     fn weight_diag(&self) -> &[f64] { &[] }
@@ -388,11 +388,11 @@ impl Edge for EdgeAcceleration {
     fn num_vertices(&self) -> usize { 5 }
     fn vertex_indices(&self) -> &[usize] { &[] }
 
-    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], timediffs: &[f64]) -> nalgebra::Vector2<f64> {
+    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], timediffs: &[f64]) -> [f64; 2] {
         let dt1 = timediffs[self.idx_dt_0];
         let dt2 = timediffs[self.idx_dt_1];
         if dt1 <= 0.0 || dt2 <= 0.0 {
-            return nalgebra::Vector2::new(f64::MAX, f64::MAX);
+            return [f64::MAX, f64::MAX];
         }
 
         let p0 = &poses[self.idx_0];
@@ -428,7 +428,7 @@ impl Edge for EdgeAcceleration {
         let a_err = crate::teb::math::penalty_bound_to_interval_symmetric(acc_lin, self.acc_lim_lin, 0.01);
         let w_err = crate::teb::math::penalty_bound_to_interval_symmetric(acc_ang, self.acc_lim_ang, 0.01);
 
-        nalgebra::Vector2::new(a_err, w_err)
+        [a_err, w_err]
     }
 
     fn weight_diag(&self) -> &[f64] { &[] }
@@ -455,7 +455,7 @@ impl Edge for EdgeKinematicsDiffDrive {
     fn num_vertices(&self) -> usize { 2 }
     fn vertex_indices(&self) -> &[usize] { &[] }
 
-    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], _timediffs: &[f64]) -> nalgebra::Vector2<f64> {
+    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], _timediffs: &[f64]) -> [f64; 2] {
         let p1 = &poses[self.idx_start];
         let p2 = &poses[self.idx_end];
         let delta = p2.position() - p1.position();
@@ -466,8 +466,8 @@ impl Edge for EdgeKinematicsDiffDrive {
 
         let nh = ((cos1 + cos2) * delta.y - (sin1 + sin2) * delta.x).abs();
         let fwd = crate::teb::math::penalty_bound_from_below(
-            delta.dot(&nalgebra::Vector2::new(cos1, sin1)), 0.0, 0.0);
-        nalgebra::Vector2::new(nh, fwd)
+            delta.x * cos1 + delta.y * sin1, 0.0, 0.0);
+        [nh, fwd]
     }
 
     fn weight_diag(&self) -> &[f64] { &[] }
@@ -495,7 +495,7 @@ impl Edge for EdgeKinematicsCarlike {
     fn num_vertices(&self) -> usize { 2 }
     fn vertex_indices(&self) -> &[usize] { &[] }
 
-    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], _timediffs: &[f64]) -> nalgebra::Vector2<f64> {
+    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], _timediffs: &[f64]) -> [f64; 2] {
         let p1 = &poses[self.idx_start];
         let p2 = &poses[self.idx_end];
         let delta = p2.position() - p1.position();
@@ -517,7 +517,7 @@ impl Edge for EdgeKinematicsCarlike {
         };
 
         let turning = crate::teb::math::penalty_bound_from_below(radius.abs(), self.min_turning_radius, 0.0);
-        nalgebra::Vector2::new(nh, turning)
+        [nh, turning]
     }
 
     fn weight_diag(&self) -> &[f64] { &[] }
@@ -535,18 +535,18 @@ impl EdgeObstacle {
     pub fn new(idx_pose: usize, weight: f64) -> Self {
         Self { idx_pose, weight }
     }
-    pub fn error_with_distance(&self, dist: f64, min_dist: f64, epsilon: f64) -> nalgebra::Vector2<f64> {
+    pub fn error_with_distance(&self, dist: f64, min_dist: f64, epsilon: f64) -> [f64; 2] {
         let e = crate::teb::math::penalty_bound_from_below(dist, min_dist, epsilon);
-        nalgebra::Vector2::new(e, 0.0)
+        [e, 0.0]
     }
 }
 
 impl Edge for EdgeObstacle {
     fn num_vertices(&self) -> usize { 1 }
     fn vertex_indices(&self) -> &[usize] { &[] }
-    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], _timediffs: &[f64]) -> nalgebra::Vector2<f64> {
+    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], _timediffs: &[f64]) -> [f64; 2] {
         let _ = poses;
-        nalgebra::Vector2::new(0.0, 0.0)
+        [0.0, 0.0]
     }
     fn weight_diag(&self) -> &[f64] { &[] }
     fn enabled(&self) -> bool { self.weight > 0.0 }
@@ -571,10 +571,10 @@ impl Edge for EdgePreferRotDir {
     fn num_vertices(&self) -> usize { 2 }
     fn vertex_indices(&self) -> &[usize] { &[] }
 
-    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], _timediffs: &[f64]) -> nalgebra::Vector2<f64> {
+    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], _timediffs: &[f64]) -> [f64; 2] {
         let angle_diff = crate::teb::math::normalize_theta(poses[self.idx_end].theta() - poses[self.idx_start].theta());
         let e = crate::teb::math::penalty_bound_from_below(self.sign as f64 * angle_diff, 0.0, 0.0);
-        nalgebra::Vector2::new(e, 0.0)
+        [e, 0.0]
     }
 
     fn weight_diag(&self) -> &[f64] { &[] }
@@ -600,9 +600,9 @@ impl Edge for EdgeViaPoint {
     fn num_vertices(&self) -> usize { 1 }
     fn vertex_indices(&self) -> &[usize] { &[] }
 
-    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], _timediffs: &[f64]) -> nalgebra::Vector2<f64> {
+    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], _timediffs: &[f64]) -> [f64; 2] {
         let err: Vector2<f64> = poses[self.idx_pose].position() - self.via_point.coords;
-        nalgebra::Vector2::new(err.norm(), 0.0)
+        [err.norm(), 0.0]
     }
 
     fn weight_diag(&self) -> &[f64] { &[] }
@@ -623,21 +623,409 @@ impl EdgeDynamicObstacle {
     }
     pub fn set_weight(&mut self, w: f64) { self.weight = w; }
     pub fn set_time(&mut self, t: f64) { self.t_ = t; }
-    pub fn error_with_distance(&self, dist: f64, min_dist: f64, epsilon: f64, inflation_dist: f64) -> nalgebra::Vector2<f64> {
+    pub fn error_with_distance(&self, dist: f64, min_dist: f64, epsilon: f64, inflation_dist: f64) -> [f64; 2] {
         let e0 = crate::teb::math::penalty_bound_from_below(dist, min_dist, epsilon);
         let e1 = crate::teb::math::penalty_bound_from_below(dist, inflation_dist, 0.0);
-        nalgebra::Vector2::new(e0, e1)
+        [e0, e1]
     }
 }
 
 impl Edge for EdgeDynamicObstacle {
     fn num_vertices(&self) -> usize { 1 }
     fn vertex_indices(&self) -> &[usize] { &[] }
-    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], timediffs: &[f64]) -> nalgebra::Vector2<f64> {
+    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], timediffs: &[f64]) -> [f64; 2] {
         let _ = poses;
         let _ = timediffs;
-        nalgebra::Vector2::new(0.0, 0.0)
+        [0.0, 0.0]
     }
     fn weight_diag(&self) -> &[f64] { &[] }
     fn enabled(&self) -> bool { self.weight > 0.0 }
+}
+
+/// Tagged edge enum — zero-allocation replacement for Box<dyn Edge>.
+///
+/// Each variant holds the edge data AND its parameter info.
+/// The optimizer stores these in a flat Vec<Edge> for cache efficiency.
+#[derive(Debug, Clone)]
+pub enum EdgeEnum {
+    TimeOptimal(EdgeTimeOptimalParam),
+    ShortestPath(EdgeShortestPathParam),
+    Velocity(EdgeVelocityParam),
+    Acceleration(EdgeAccelerationParam),
+    KinematicsDiffDrive(EdgeKinematicsDiffDriveParam),
+    KinematicsCarlike(EdgeKinematicsCarlikeParam),
+    Obstacle(EdgeObstacleParam),
+    PreferRotDir(EdgePreferRotDirParam),
+    ViaPoint(EdgeViaPointParam),
+    DynamicObstacle(EdgeDynamicObstacleParam),
+}
+
+/// Param for EdgeTimeOptimal.
+#[derive(Debug, Clone)]
+pub struct EdgeTimeOptimalParam {
+    pub idx_timediff: usize,
+    pub weight: f64,
+}
+
+/// Param for EdgeShortestPath.
+#[derive(Debug, Clone)]
+pub struct EdgeShortestPathParam {
+    pub idx_prev: usize,
+    pub idx_next: usize,
+    pub weight: f64,
+}
+
+/// Param for EdgeVelocity.
+#[derive(Debug, Clone)]
+pub struct EdgeVelocityParam {
+    pub idx_start: usize,
+    pub idx_end: usize,
+    pub idx_timediff: usize,
+    pub weight_vx: f64,
+    pub weight_omega: f64,
+    pub max_vel_x: f64,
+    pub max_vel_x_backwards: f64,
+    pub max_vel_theta: f64,
+    pub max_vel_y: f64,
+    pub exact_arc_length: bool,
+}
+
+/// Param for EdgeAcceleration.
+#[derive(Debug, Clone)]
+pub struct EdgeAccelerationParam {
+    pub idx_0: usize,
+    pub idx_1: usize,
+    pub idx_2: usize,
+    pub idx_dt_0: usize,
+    pub idx_dt_1: usize,
+    pub weight_lin: f64,
+    pub weight_ang: f64,
+    pub acc_lim_lin: f64,
+    pub acc_lim_ang: f64,
+    pub exact_arc_length: bool,
+}
+
+/// Param for EdgeKinematicsDiffDrive.
+#[derive(Debug, Clone)]
+pub struct EdgeKinematicsDiffDriveParam {
+    pub idx_start: usize,
+    pub idx_end: usize,
+    pub weight_nh: f64,
+    pub weight_fwd: f64,
+}
+
+/// Param for EdgeKinematicsCarlike.
+#[derive(Debug, Clone)]
+pub struct EdgeKinematicsCarlikeParam {
+    pub idx_start: usize,
+    pub idx_end: usize,
+    pub weight_nh: f64,
+    pub weight_turning: f64,
+    pub min_turning_radius: f64,
+    pub exact_arc_length: bool,
+}
+
+/// Param for EdgeObstacle.
+#[derive(Debug, Clone)]
+pub struct EdgeObstacleParam {
+    pub idx_pose: usize,
+    pub weight: f64,
+}
+
+/// Param for EdgePreferRotDir.
+#[derive(Debug, Clone)]
+pub struct EdgePreferRotDirParam {
+    pub idx_start: usize,
+    pub idx_end: usize,
+    pub weight: f64,
+    pub sign: i8,
+}
+
+/// Param for EdgeViaPoint.
+#[derive(Debug, Clone)]
+pub struct EdgeViaPointParam {
+    pub idx_pose: usize,
+    pub via_point: nalgebra::Point2<f64>,
+    pub weight: f64,
+}
+
+/// Param for EdgeDynamicObstacle.
+#[derive(Debug, Clone)]
+pub struct EdgeDynamicObstacleParam {
+    pub idx_pose: usize,
+    pub weight: f64,
+    pub pos_x: f64,
+    pub pos_y: f64,
+    pub heading: f64,
+    pub speed: f64,
+    pub radius: f64,
+    pub max_speed: f64,
+    pub inflation_dist: f64,
+}
+
+impl EdgeTimeOptimalParam {
+    pub fn new(idx_timediff: usize, weight: f64) -> Self {
+        Self { idx_timediff, weight }
+    }
+}
+
+impl EdgeShortestPathParam {
+    pub fn new(idx_prev: usize, idx_next: usize, weight: f64) -> Self {
+        Self { idx_prev, idx_next, weight }
+    }
+}
+
+impl EdgeVelocityParam {
+    pub fn new(idx_start: usize, idx_end: usize, idx_timediff: usize,
+               max_vel_x: f64, max_vel_x_backwards: f64, max_vel_theta: f64,
+               max_vel_y: f64, exact_arc_length: bool) -> Self {
+        Self { idx_start, idx_end, idx_timediff,
+               weight_vx: 0.0, weight_omega: 0.0,
+               max_vel_x, max_vel_x_backwards, max_vel_theta, max_vel_y, exact_arc_length }
+    }
+    pub fn set_weights(&mut self, vx: f64, omega: f64) {
+        self.weight_vx = vx;
+        self.weight_omega = omega;
+    }
+}
+
+impl EdgeAccelerationParam {
+    pub fn new(idx_0: usize, idx_1: usize, idx_2: usize,
+               idx_dt_0: usize, idx_dt_1: usize,
+               acc_lim_lin: f64, acc_lim_ang: f64, exact_arc_length: bool) -> Self {
+        Self { idx_0, idx_1, idx_2, idx_dt_0, idx_dt_1,
+               weight_lin: 0.0, weight_ang: 0.0,
+               acc_lim_lin, acc_lim_ang, exact_arc_length }
+    }
+    pub fn set_weights(&mut self, lin: f64, ang: f64) {
+        self.weight_lin = lin;
+        self.weight_ang = ang;
+    }
+}
+
+impl EdgeKinematicsDiffDriveParam {
+    pub fn new(idx_start: usize, idx_end: usize) -> Self {
+        Self { idx_start, idx_end, weight_nh: 0.0, weight_fwd: 0.0 }
+    }
+    pub fn set_weights(&mut self, nh: f64, fwd: f64) {
+        self.weight_nh = nh;
+        self.weight_fwd = fwd;
+    }
+}
+
+impl EdgeKinematicsCarlikeParam {
+    pub fn new(idx_start: usize, idx_end: usize, min_turning_radius: f64, exact_arc_length: bool) -> Self {
+        Self { idx_start, idx_end, weight_nh: 0.0, weight_turning: 0.0,
+               min_turning_radius, exact_arc_length }
+    }
+    pub fn set_weights(&mut self, nh: f64, turning: f64) {
+        self.weight_nh = nh;
+        self.weight_turning = turning;
+    }
+}
+
+impl EdgeObstacleParam {
+    pub fn new(idx_pose: usize, weight: f64) -> Self {
+        Self { idx_pose, weight }
+    }
+}
+
+impl EdgePreferRotDirParam {
+    pub fn new(idx_start: usize, idx_end: usize, weight: f64, sign: i8) -> Self {
+        Self { idx_start, idx_end, weight, sign }
+    }
+}
+
+impl EdgeViaPointParam {
+    pub fn new(idx_pose: usize, via_point: nalgebra::Point2<f64>, weight: f64) -> Self {
+        Self { idx_pose, via_point, weight }
+    }
+}
+
+impl EdgeDynamicObstacleParam {
+    pub fn new(idx_pose: usize, pos_x: f64, pos_y: f64, heading: f64,
+               speed: f64, radius: f64, max_speed: f64, inflation_dist: f64) -> Self {
+        Self { idx_pose, weight: 0.0, pos_x, pos_y, heading, speed, radius, max_speed, inflation_dist }
+    }
+}
+
+/// Convert Edge to &dyn Edge methods via trait impl.
+impl EdgeEnum {
+    /// Number of vertices this edge connects.
+    #[inline]
+    pub fn num_vertices(&self) -> usize {
+        match self {
+            EdgeEnum::TimeOptimal(_) => 1,
+            EdgeEnum::ShortestPath(_) => 2,
+            EdgeEnum::Velocity(_) => 2,
+            EdgeEnum::Acceleration(_) => 3,
+            EdgeEnum::KinematicsDiffDrive(_) => 2,
+            EdgeEnum::KinematicsCarlike(_) => 2,
+            EdgeEnum::Obstacle(_) => 1,
+            EdgeEnum::PreferRotDir(_) => 2,
+            EdgeEnum::ViaPoint(_) => 1,
+            EdgeEnum::DynamicObstacle(_) => 1,
+        }
+    }
+
+    pub fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], timediffs: &[f64]) -> [f64; 2] {
+        match self {
+            EdgeEnum::TimeOptimal(p) => {
+                if p.weight <= 0.0 { return [0.0, 0.0]; }
+                [timediffs[p.idx_timediff], 0.0]
+            }
+            EdgeEnum::ShortestPath(p) => {
+                if p.weight <= 0.0 { return [0.0, 0.0]; }
+                let delta = poses[p.idx_next].position() - poses[p.idx_prev].position();
+                [delta[0], delta[1]]
+            }
+            EdgeEnum::Velocity(p) => {
+                if p.weight_vx <= 0.0 && p.weight_omega <= 0.0 { return [0.0, 0.0]; }
+                let p1 = &poses[p.idx_start];
+                let p2 = &poses[p.idx_end];
+                let dt = timediffs[p.idx_timediff];
+                if dt <= 0.0 {
+                    return [f64::MAX, f64::MAX];
+                }
+                let delta = p2.position() - p1.position();
+                let dist = delta.norm();
+                let angle_diff = crate::teb::math::normalize_theta(p2.theta() - p1.theta());
+                let dist = if p.exact_arc_length && angle_diff.abs() > 1e-10 {
+                    let radius = dist / (2.0 * (angle_diff / 2.0).sin().abs());
+                    (angle_diff * radius).abs()
+                } else {
+                    dist
+                };
+                let direction = crate::teb::math::fast_sigmoid(100.0 * (delta.x * p1.orientation_unit_vec().x + delta.y * p1.orientation_unit_vec().y));
+                let vel = (dist / dt) * direction;
+                let omega = angle_diff / dt;
+                let v_err = if vel < -p.max_vel_x_backwards {
+                    (-vel - p.max_vel_x_backwards).abs()
+                } else if vel <= p.max_vel_x {
+                    0.0
+                } else {
+                    vel - p.max_vel_x
+                };
+                let w_err = crate::teb::math::penalty_bound_from_below(omega.abs(), p.max_vel_theta, 0.01);
+                [v_err, w_err]
+            }
+            EdgeEnum::Acceleration(p) => {
+                if p.weight_lin <= 0.0 && p.weight_ang <= 0.0 { return [0.0, 0.0]; }
+                let dt1 = timediffs[p.idx_dt_0];
+                let dt2 = timediffs[p.idx_dt_1];
+                if dt1 <= 0.0 || dt2 <= 0.0 {
+                    return [f64::MAX, f64::MAX];
+                }
+                let p0 = &poses[p.idx_0];
+                let p1 = &poses[p.idx_1];
+                let p2 = &poses[p.idx_2];
+                let diff1 = p1.position() - p0.position();
+                let diff2 = p2.position() - p1.position();
+                let dist1 = diff1.norm();
+                let dist2 = diff2.norm();
+                let angle_diff1 = crate::teb::math::normalize_theta(p1.theta() - p0.theta());
+                let angle_diff2 = crate::teb::math::normalize_theta(p2.theta() - p1.theta());
+                let (dist1, dist2) = if p.exact_arc_length {
+                    let d1 = if angle_diff1.abs() > 1e-10 {
+                        let r = dist1 / (2.0 * (angle_diff1 / 2.0).sin().abs());
+                        (angle_diff1 * r).abs()
+                    } else { dist1 };
+                    let d2 = if angle_diff2.abs() > 1e-10 {
+                        let r = dist2 / (2.0 * (angle_diff2 / 2.0).sin().abs());
+                        (angle_diff2 * r).abs()
+                    } else { dist2 };
+                    (d1, d2)
+                } else {
+                    (dist1, dist2)
+                };
+                let vel1 = dist1 / dt1 * crate::teb::math::fast_sigmoid(100.0 * (diff1.x * p0.orientation_unit_vec().x + diff1.y * p0.orientation_unit_vec().y));
+                let vel2 = dist2 / dt2 * crate::teb::math::fast_sigmoid(100.0 * (diff2.x * p1.orientation_unit_vec().x + diff2.y * p1.orientation_unit_vec().y));
+                let acc_lin = (vel2 - vel1) * 2.0 / (dt1 + dt2);
+                let acc_ang = (angle_diff2 / dt2 - angle_diff1 / dt1) * 2.0 / (dt1 + dt2);
+                let a_err = crate::teb::math::penalty_bound_to_interval_symmetric(acc_lin, p.acc_lim_lin, 0.01);
+                let w_err = crate::teb::math::penalty_bound_to_interval_symmetric(acc_ang, p.acc_lim_ang, 0.01);
+                [a_err, w_err]
+            }
+            EdgeEnum::KinematicsDiffDrive(p) => {
+                if p.weight_nh <= 0.0 && p.weight_fwd <= 0.0 { return [0.0, 0.0]; }
+                let p1 = &poses[p.idx_start];
+                let p2 = &poses[p.idx_end];
+                let delta = p2.position() - p1.position();
+                let cos1 = p1.theta().cos();
+                let sin1 = p1.theta().sin();
+                let nh = ((cos1 + cos1) * delta.y - (sin1 + sin1) * delta.x).abs();
+                let fwd = crate::teb::math::penalty_bound_from_below(delta.x * cos1 + delta.y * sin1, 0.0, 0.0);
+                [nh, fwd]
+            }
+            EdgeEnum::KinematicsCarlike(p) => {
+                if p.weight_nh <= 0.0 && p.weight_turning <= 0.0 { return [0.0, 0.0]; }
+                let p1 = &poses[p.idx_start];
+                let p2 = &poses[p.idx_end];
+                let delta = p2.position() - p1.position();
+                let cos1 = p1.theta().cos();
+                let sin1 = p1.theta().sin();
+                let nh = ((cos1 + cos1) * delta.y - (sin1 + sin1) * delta.x).abs();
+                let angle_diff = crate::teb::math::normalize_theta(p2.theta() - p1.theta());
+                let radius = if angle_diff.abs() < 1e-10 {
+                    f64::MAX
+                } else if p.exact_arc_length {
+                    let dist = delta.norm();
+                    dist / (2.0 * (angle_diff / 2.0).sin().abs())
+                } else {
+                    delta.norm() / angle_diff.abs()
+                };
+                let turning = crate::teb::math::penalty_bound_from_below(radius.abs(), p.min_turning_radius, 0.0);
+                [nh, turning]
+            }
+            EdgeEnum::Obstacle(p) => {
+                if p.weight <= 0.0 { return [0.0, 0.0]; }
+                [0.0, 0.0]
+            }
+            EdgeEnum::PreferRotDir(p) => {
+                if p.weight <= 0.0 { return [0.0, 0.0]; }
+                let angle_diff = crate::teb::math::normalize_theta(poses[p.idx_end].theta() - poses[p.idx_start].theta());
+                let e = crate::teb::math::penalty_bound_from_below(p.sign as f64 * angle_diff, 0.0, 0.0);
+                [e, 0.0]
+            }
+            EdgeEnum::ViaPoint(p) => {
+                if p.weight <= 0.0 { return [0.0, 0.0]; }
+                let err: nalgebra::Vector2<f64> = poses[p.idx_pose].position() - p.via_point.coords;
+                [err.norm(), 0.0]
+            }
+            EdgeEnum::DynamicObstacle(p) => {
+                if p.weight <= 0.0 { return [0.0, 0.0]; }
+                [0.0, 0.0]
+            }
+        }
+    }
+
+    /// Compute chi^2 (weighted squared error).
+    #[inline]
+    pub fn chi2(&self, poses: &[crate::teb::pose_se2::PoseSe2], timediffs: &[f64], weight: f64) -> f64 {
+        let e = self.error(poses, timediffs);
+        (e[0] * e[0] + e[1] * e[1]) * weight
+    }
+
+    /// Weight diagonal.
+    #[inline]
+    pub fn weight_diag(&self) -> &'static [f64] {
+        &[]
+    }
+
+    /// Check if edge is enabled.
+    #[inline]
+    pub fn enabled(&self) -> bool {
+        match self {
+            EdgeEnum::TimeOptimal(p) => p.weight > 0.0,
+            EdgeEnum::ShortestPath(p) => p.weight > 0.0,
+            EdgeEnum::Velocity(p) => p.weight_vx > 0.0 || p.weight_omega > 0.0,
+            EdgeEnum::Acceleration(p) => p.weight_lin > 0.0 || p.weight_ang > 0.0,
+            EdgeEnum::KinematicsDiffDrive(p) => p.weight_nh > 0.0 || p.weight_fwd > 0.0,
+            EdgeEnum::KinematicsCarlike(p) => p.weight_nh > 0.0 || p.weight_turning > 0.0,
+            EdgeEnum::Obstacle(p) => p.weight > 0.0,
+            EdgeEnum::PreferRotDir(p) => p.weight > 0.0,
+            EdgeEnum::ViaPoint(p) => p.weight > 0.0,
+            EdgeEnum::DynamicObstacle(p) => p.weight > 0.0,
+        }
+    }
 }

@@ -2,15 +2,15 @@
 //!
 //! Ported from C++ `optimal_planner.cpp`: optimizeTEB, optimizeGraph, buildGraph.
 
-use nalgebra::{DMatrix, DVector, LU};
+use nalgebra::{DMatrix, DVector};
 use nav_core::constraints::TebConfig;
 
 use crate::teb::band::TimedElasticBand;
 use crate::teb::pose_se2::PoseSe2;
 use crate::teb::edges::{
-    Edge, EdgeAcceleration, EdgeKinematicsCarlike, EdgeKinematicsDiffDrive,
-    EdgeObstacle, EdgePreferRotDir, EdgeShortestPath, EdgeTimeOptimal, EdgeVelocity,
-    EdgeViaPoint, EdgeDynamicObstacle,
+    EdgeEnum, EdgeAccelerationParam, EdgeKinematicsCarlikeParam, EdgeKinematicsDiffDriveParam,
+    EdgeObstacleParam, EdgePreferRotDirParam, EdgeShortestPathParam, EdgeTimeOptimalParam,
+    EdgeVelocityParam, EdgeDynamicObstacleParam, EdgeViaPointParam,
 };
 
 // ===== Parameter types =====
@@ -26,98 +26,7 @@ pub enum ParamVertex {
 
 // ===== Edge parameter description =====
 
-/// Describes which vertices an edge uses.
-#[derive(Debug, Clone)]
-enum EdgeParamInfo {
-    TimeOptimal { td_idx: usize },
-    ShortestPath { prev: usize, next: usize },
-    Velocity { start: usize, end: usize, td_idx: usize },
-    Acceleration { p0: usize, p1: usize, p2: usize, td0: usize, td1: usize },
-    Kinematics { start: usize, end: usize },
-    Obstacle { pose_idx: usize },
-    ViaPoint { pose_idx: usize },
-    PreferRotDir { start: usize, end: usize },
-}
 
-impl EdgeParamInfo {
-    fn to_global_params(&self, free_pose: &[usize], td_offset: usize) -> Vec<usize> {
-        let mut params = Vec::new();
-        for pv in self.param_types() {
-            match pv {
-                ParamVertex::Pose { pose_idx, comp } => {
-                    if let Some(&base) = free_pose.get(pose_idx) {
-                        params.push(base + comp);
-                    } else {
-                        params.push(usize::MAX);
-                    }
-                }
-                ParamVertex::TimeDiff { td_idx } => {
-                    params.push(td_offset + td_idx);
-                }
-            }
-        }
-        params
-    }
-
-    fn param_types(&self) -> Vec<ParamVertex> {
-        match self {
-            EdgeParamInfo::TimeOptimal { td_idx } => {
-                vec![ParamVertex::TimeDiff { td_idx: *td_idx }]
-            }
-            EdgeParamInfo::ShortestPath { prev, next } => {
-                vec![
-                    ParamVertex::Pose { pose_idx: *prev, comp: 0 },
-                    ParamVertex::Pose { pose_idx: *prev, comp: 1 },
-                    ParamVertex::Pose { pose_idx: *next, comp: 0 },
-                    ParamVertex::Pose { pose_idx: *next, comp: 1 },
-                ]
-            }
-            EdgeParamInfo::Velocity { start, end, td_idx } => {
-                vec![
-                    ParamVertex::Pose { pose_idx: *start, comp: 0 },
-                    ParamVertex::Pose { pose_idx: *start, comp: 1 },
-                    ParamVertex::Pose { pose_idx: *end, comp: 0 },
-                    ParamVertex::Pose { pose_idx: *end, comp: 1 },
-                    ParamVertex::TimeDiff { td_idx: *td_idx },
-                ]
-            }
-            EdgeParamInfo::Acceleration { p0, p1, p2, td0, td1 } => {
-                vec![
-                    ParamVertex::Pose { pose_idx: *p0, comp: 0 },
-                    ParamVertex::Pose { pose_idx: *p0, comp: 1 },
-                    ParamVertex::Pose { pose_idx: *p1, comp: 0 },
-                    ParamVertex::Pose { pose_idx: *p1, comp: 1 },
-                    ParamVertex::Pose { pose_idx: *p2, comp: 0 },
-                    ParamVertex::Pose { pose_idx: *p2, comp: 1 },
-                    ParamVertex::TimeDiff { td_idx: *td0 },
-                    ParamVertex::TimeDiff { td_idx: *td1 },
-                ]
-            }
-            EdgeParamInfo::Kinematics { start, end } => {
-                vec![
-                    ParamVertex::Pose { pose_idx: *start, comp: 0 },
-                    ParamVertex::Pose { pose_idx: *start, comp: 1 },
-                    ParamVertex::Pose { pose_idx: *end, comp: 0 },
-                    ParamVertex::Pose { pose_idx: *end, comp: 1 },
-                ]
-            }
-            EdgeParamInfo::Obstacle { pose_idx } => {
-                vec![ParamVertex::Pose { pose_idx: *pose_idx, comp: 0 }]
-            }
-            EdgeParamInfo::ViaPoint { pose_idx } => {
-                vec![ParamVertex::Pose { pose_idx: *pose_idx, comp: 0 }]
-            }
-            EdgeParamInfo::PreferRotDir { start, end } => {
-                vec![
-                    ParamVertex::Pose { pose_idx: *start, comp: 0 },
-                    ParamVertex::Pose { pose_idx: *start, comp: 1 },
-                    ParamVertex::Pose { pose_idx: *end, comp: 0 },
-                    ParamVertex::Pose { pose_idx: *end, comp: 1 },
-                ]
-            }
-        }
-    }
-}
 /// Pre-allocated scratch buffers for zero-copy LM optimization.
 ///
 /// Allocated once per TEBOptimizer::new, reused across all optimization iterations.
@@ -256,87 +165,70 @@ impl TEBOptimizer {
     }
 
     /// Build all edges (mirrors C++ buildGraph + AddEdges*).
-    fn build_edges(&self, weight_multiplier: f64) -> Vec<(Box<dyn Edge>, EdgeParamInfo)> {
+    fn build_edges(&self, weight_multiplier: f64) -> Vec<EdgeEnum> {
         let n = self.band.size_poses();
         if n < 2 {
             return Vec::new();
         }
 
-        let mut edges: Vec<(Box<dyn Edge>, EdgeParamInfo)> = Vec::new();
+        let mut edges: Vec<EdgeEnum> = Vec::new();
         let weights = &self.config.optim;
         let robot = &self.config.robot;
 
         // Time-optimal edges
         for i in 0..n - 1 {
-            edges.push((Box::new(EdgeTimeOptimal::new(i, weights.weight_optimaltime)),
-                EdgeParamInfo::TimeOptimal { td_idx: i }));
+            edges.push(EdgeEnum::TimeOptimal(EdgeTimeOptimalParam::new(i, weights.weight_optimaltime)));
         }
 
         // Shortest-path edges
         for i in 0..n - 1 {
-            edges.push((Box::new(EdgeShortestPath::new(i, i + 1, weights.weight_shortest_path)),
-                EdgeParamInfo::ShortestPath { prev: i, next: i + 1 }));
+            edges.push(EdgeEnum::ShortestPath(EdgeShortestPathParam::new(i, i + 1, weights.weight_shortest_path)));
         }
 
         // Velocity edges
         for i in 0..n - 1 {
-            let mut edge = EdgeVelocity::new(
-                i, i + 1, i,
-                robot.max_vel_x, robot.max_vel_x_backwards,
-                robot.max_vel_theta, robot.max_vel_y,
-                robot.exact_arc_length,
-            );
-            edge.set_weights(
-                weights.weight_max_vel_x * weight_multiplier,
-                weights.weight_max_vel_theta * weight_multiplier,
-            );
-            edges.push((Box::new(edge), EdgeParamInfo::Velocity {
-                start: i, end: i + 1, td_idx: i,
+            edges.push(EdgeEnum::Velocity(EdgeVelocityParam {
+                idx_start: i, idx_end: i + 1, idx_timediff: i,
+                weight_vx: weights.weight_max_vel_x * weight_multiplier,
+                weight_omega: weights.weight_max_vel_theta * weight_multiplier,
+                max_vel_x: robot.max_vel_x,
+                max_vel_x_backwards: robot.max_vel_x_backwards,
+                max_vel_theta: robot.max_vel_theta,
+                max_vel_y: robot.max_vel_y,
+                exact_arc_length: robot.exact_arc_length,
             }));
         }
 
         // Acceleration edges
         for i in 0..n - 2 {
-            let mut edge = EdgeAcceleration::new(
-                i, i + 1, i + 2,
-                i, i + 1,
-                robot.acc_lim_x, robot.acc_lim_theta,
-                robot.exact_arc_length,
-            );
-            edge.set_weights(
-                weights.weight_acc_lim_x * weight_multiplier,
-                weights.weight_acc_lim_theta * weight_multiplier,
-            );
-            edges.push((Box::new(edge), EdgeParamInfo::Acceleration {
-                p0: i, p1: i + 1, p2: i + 2,
-                td0: i, td1: i + 1,
+            edges.push(EdgeEnum::Acceleration(EdgeAccelerationParam {
+                idx_0: i, idx_1: i + 1, idx_2: i + 2,
+                idx_dt_0: i, idx_dt_1: i + 1,
+                weight_lin: weights.weight_acc_lim_x * weight_multiplier,
+                weight_ang: weights.weight_acc_lim_theta * weight_multiplier,
+                acc_lim_lin: robot.acc_lim_x,
+                acc_lim_ang: robot.acc_lim_theta,
+                exact_arc_length: robot.exact_arc_length,
             }));
         }
 
         // Kinematics edges
         if robot.min_turning_radius == 0.0 || weights.weight_kinematics_turning_radius == 0.0 {
             for i in 0..n - 1 {
-                let mut edge = EdgeKinematicsDiffDrive::new(i, i + 1);
-                edge.set_weights(
-                    weights.weight_kinematics_nh * weight_multiplier,
-                    weights.weight_kinematics_forward_drive * weight_multiplier,
-                );
-                edges.push((Box::new(edge), EdgeParamInfo::Kinematics {
-                    start: i, end: i + 1,
+                edges.push(EdgeEnum::KinematicsDiffDrive(EdgeKinematicsDiffDriveParam {
+                    idx_start: i, idx_end: i + 1,
+                    weight_nh: weights.weight_kinematics_nh * weight_multiplier,
+                    weight_fwd: weights.weight_kinematics_forward_drive * weight_multiplier,
                 }));
             }
         } else {
             for i in 0..n - 1 {
-                let mut edge = EdgeKinematicsCarlike::new(
-                    i, i + 1, robot.min_turning_radius,
-                    robot.exact_arc_length,
-                );
-                edge.set_weights(
-                    weights.weight_kinematics_nh * weight_multiplier,
-                    weights.weight_kinematics_turning_radius * weight_multiplier,
-                );
-                edges.push((Box::new(edge), EdgeParamInfo::Kinematics {
-                    start: i, end: i + 1,
+                edges.push(EdgeEnum::KinematicsCarlike(EdgeKinematicsCarlikeParam {
+                    idx_start: i, idx_end: i + 1,
+                    weight_nh: weights.weight_kinematics_nh * weight_multiplier,
+                    weight_turning: weights.weight_kinematics_turning_radius * weight_multiplier,
+                    min_turning_radius: robot.min_turning_radius,
+                    exact_arc_length: robot.exact_arc_length,
                 }));
             }
         }
@@ -346,7 +238,7 @@ impl TEBOptimizer {
 
     /// Inner LM optimization (mirrors C++ optimizeGraph).
     /// Inner LM optimization with zero-copy scratch buffers.
-    fn optimize_graph(&mut self, edges: &[(Box<dyn Edge>, EdgeParamInfo)]) -> bool {
+    fn optimize_graph(&mut self, edges: &[EdgeEnum]) -> bool {
         let n_poses = self.band.size_poses();
         let n_td = self.band.size_time_diffs();
         if n_poses < 2 || n_td < 1 { return false; }
@@ -368,7 +260,7 @@ impl TEBOptimizer {
         let timediffs: Vec<f64> = (0..n_td).map(|i| self.band.timediff(i)).collect();
 
         // Ensure scratch capacity
-        let max_res: usize = edges.iter().filter(|(e, _)| e.as_ref().enabled()).map(|(e, _)| e.as_ref().num_vertices()).sum();
+        let max_res: usize = edges.iter().filter(|e| e.enabled()).count() * 2;
         let jac_cap = n_params * max_res.max(1);
         if self.scratch.jacobian_flat.len() < jac_cap {
             self.scratch.jacobian_flat.resize(jac_cap, 0.0);
@@ -430,7 +322,7 @@ impl TEBOptimizer {
         true
     }
 
-    fn eval_jac_zc(&mut self, edges: &[(Box<dyn Edge>, EdgeParamInfo)], poses: &[PoseSe2],
+    fn eval_jac_zc(&mut self, edges: &[EdgeEnum], poses: &[PoseSe2],
                    timediffs: &[f64], free_pose: &[usize], td_offset: usize, n_params: usize) -> usize {
         let s = &mut self.scratch;
         s.residuals.clear();
@@ -438,20 +330,19 @@ impl TEBOptimizer {
 
         let max_fb = free_pose.iter().filter(|&&b| b != usize::MAX).copied().max().unwrap_or(0);
 
-        for (edge, _info) in edges.iter() {
-            let e_ref = edge.as_ref();
-            if !e_ref.enabled() { continue; }
-            let e = e_ref.error(poses, timediffs);
-            let n_res = e.len();
-            for i in 0..n_res { s.residuals.push(e[i]); }
+        for edge in edges {
+            if !edge.enabled() { continue; }
+            let e = edge.error(poses, timediffs);
+            s.residuals.push(e[0]);
+            s.residuals.push(e[1]);
             for pi in 0..n_params {
-                Self::fd_col_into(s, e_ref, pi, poses, timediffs, free_pose, td_offset, max_fb, n_params, pi);
+                Self::fd_col_into(s, edge, pi, poses, timediffs, free_pose, td_offset, max_fb, n_params, pi);
             }
         }
         s.residuals.len()
     }
 
-    fn fd_col_into(s: &mut ScratchBuffers, edge: &dyn Edge, param_idx: usize,
+    fn fd_col_into(s: &mut ScratchBuffers, edge: &EdgeEnum, param_idx: usize,
                    poses: &[PoseSe2], timediffs: &[f64], free_pose: &[usize],
                    td_offset: usize, max_fb: usize, n_params: usize, jac_col: usize) {
         let eps = 1e-7;
@@ -558,7 +449,7 @@ impl TEBOptimizer {
     }
 
     fn cost_zc(&self, poses: &[PoseSe2], timediffs: &[f64],
-               edges: &[(Box<dyn Edge>, EdgeParamInfo)], free_pose: &[usize],
+               edges: &[EdgeEnum], free_pose: &[usize],
                td_offset: usize, n: usize, use_dx: bool) -> f64 {
         let mut pos = poses.to_vec();
         let mut td = timediffs.to_vec();
@@ -588,10 +479,10 @@ impl TEBOptimizer {
         }
 
         let mut total = 0.0;
-        for (edge, _) in edges.iter() {
-            if !edge.as_ref().enabled() { continue; }
-            let e = edge.as_ref().error(&pos, &td);
-            for &v in &e { total += v * v; }
+        for edge in edges {
+            if !edge.enabled() { continue; }
+            let e = edge.error(&pos, &td);
+            total += e[0] * e[0] + e[1] * e[1];
         }
         total
     }
