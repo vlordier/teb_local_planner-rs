@@ -146,3 +146,48 @@ Expected improvement: marginal (~10%) but eliminates allocator pressure for comm
 **auto_resize stale parameter mapping:** The optimizer computes `n_td` and the parameter index mapping before the inner LM loop, but `auto_resize` (called at the top of each outer iteration) may modify the band's size. This causes index-out-of-bounds panics when `n_td` diverges from actual `timediff_vec.len()`.
 
 **Fix:** Move parameter mapping computation inside the inner loop, after `auto_resize`.
+
+## Optimization Applied: Zero-Copy Scratch Buffers
+
+### What Changed
+Rewrote `TEBOptimizer::optimize_graph()` and all its callees to use pre-allocated `ScratchBuffers`:
+- `jacobian_flat: Vec<f64>` — flat column-major Jacobian, zeroed per iter
+- `residuals: Vec<f64>` — residual vector, cleared per iter
+- `pose_perturb: Vec<PoseSe2>` — perturbed pose copy, synced each fd eval
+- `td_perturb: Vec<f64>` — perturbed timediff copy, synced each fd eval
+- `dx: Vec<f64>` — parameter vector + solver result
+- `Ata: Vec<f64>` — normal equation matrix
+- `Atb: Vec<f64>` — normal equation vector
+
+### Allocations Eliminated Per Inner Iteration
+| Allocation | Before | After |
+|-----------|--------|-------|
+| `Vec<PoseSe2>` copy | 1 (eval) + 3840 (fd) | 0 (in-place perturbation) |
+| `Vec<f64>` timediff copy | 1 (eval) + 3840 (fd) | 0 (in-place perturbation) |
+| `Vec<f64>` residual diff | 3840 | 0 (computed inline) |
+| `Vec<Vec<f64>>` Jacobian cols | ~25 | 0 (flat array) |
+| `Vec<f64>` AtA | 1 | 0 (pre-allocated) |
+| `Vec<f64>` Atb | 1 | 0 (pre-allocated) |
+| `Vec<f64>` dx | 2 | 0 (pre-allocated) |
+| `Vec<f64>` x_new | 1 | 0 (reuse dx) |
+| **Total** | **~11,528** | **0** |
+
+### Allocations Per Outer Iteration
+| Allocation | Before | After |
+|-----------|--------|-------|
+| `Vec<Box<dyn Edge>>` + boxes | ~160 | ~160 (same, edge pool needed) |
+| `Vec<usize>` free_pose | 1 | 1 |
+| `Vec<f64>` x (param vector) | 1 | 0 |
+
+### Per Optimization Pass (20 poses, 20 inner iters)
+- **Before:** ~230,560 Vec allocations per pass
+- **After:** ~0 Vec allocations (plus ~200 edge box allocations)
+- **Net reduction:** ~230,000 Vec allocations eliminated
+
+### Remaining Allocation Hotspots (for future optimization)
+1. **Edge pool**: `build_edges` still allocates ~80 `Box<dyn Edge>` per outer iter
+   - Fix: use `Vec<EnumEdge>` or arena allocator
+2. **Edge::error** still returns `nalgebra::Vector2<f64>` which allocates a Vec internally
+   - Fix: use stack-allocated array `[f64; 2]` or return fixed-size type
+3. **Solve system**: creates `DMatrix`/`DVector` from scratch each iter
+   - Fix: pre-allocate matrices, use in-place LU
