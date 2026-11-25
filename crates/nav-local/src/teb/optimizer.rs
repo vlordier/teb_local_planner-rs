@@ -2,7 +2,6 @@
 //!
 //! Ported from C++ `optimal_planner.cpp`: optimizeTEB, optimizeGraph, buildGraph.
 
-use nalgebra::{DMatrix, DVector};
 use nav_core::constraints::TebConfig;
 
 use crate::teb::band::TimedElasticBand;
@@ -437,15 +436,68 @@ impl TEBOptimizer {
         }
     }
 
+    /// In-place LU solve: solves AtA * dx = Atb using LU decomposition with partial pivoting.
+    ///
+    /// Uses pre-allocated scratch buffers: Ata (flat n×n), Atb (flat n), dx (flat n).
+    /// Zero heap allocations — all arrays are pre-allocated in ScratchBuffers.
     fn solve_zc(&mut self, n: usize) {
         if n == 0 { return; }
         let s = &mut self.scratch;
-        let mat = nalgebra::DMatrix::from_row_slice(n, n, &s.Ata[..n*n]);
-        let b = nalgebra::DVector::from_vec(s.Atb[..n].to_vec());
-        let lu = nalgebra::LU::new(mat);
-        let result = lu.solve(&b).map(|x| (0..n).map(|i| x[i]).collect())
-            .unwrap_or_else(|| vec![0.0; n]);
-        s.dx[..n].copy_from_slice(&result);
+        let a = &mut s.Ata[..n * n]; // flat row-major matrix
+        let b = &mut s.Atb[..n];     // flat RHS vector
+
+        // LU decomposition with partial pivoting (in-place on a[])
+        // Row-major: element (r,c) = a[r * n + c]
+        for k in 0..n {
+            // Find pivot: row with largest absolute value in column k
+            let mut max_val = a[k * n + k].abs();
+            let mut max_row = k;
+            for i in (k + 1)..n {
+                let val = a[i * n + k].abs();
+                if val > max_val {
+                    max_val = val;
+                    max_row = i;
+                }
+            }
+
+            // Swap rows in matrix and RHS
+            if max_row != k {
+                for j in 0..n {
+                    a.swap(k * n + j, max_row * n + j);
+                }
+                b.swap(k, max_row);
+            }
+
+            // Check for singular matrix
+            if max_val < 1e-15 {
+                s.dx[..n].fill(0.0);
+                return;
+            }
+
+            // Eliminate below diagonal
+            for i in (k + 1)..n {
+                let factor = a[i * n + k] / a[k * n + k];
+                a[i * n + k] = factor; // store L factor in matrix
+                for j in (k + 1)..n {
+                    a[i * n + j] -= factor * a[k * n + j];
+                }
+            }
+        }
+
+        // Forward substitution: solve Ly = Pb (L is strictly lower triangular, unit diagonal)
+        // Row-major: L[i,j] = a[i*n + j]
+        for i in 0..n {
+            let b_val = b[i];
+            let sum = (0..i).map(|j| a[i * n + j] * b[j]).sum::<f64>();
+            b[i] = b_val - sum;
+        }
+
+        // Back substitution: solve Ux = b (U is upper triangular)
+        // Row-major: U[i,j] = a[i*n + j]
+        for i in (0..n).rev() {
+            let sum = (i + 1..n).map(|j| a[i * n + j] * b[j]).sum::<f64>();
+            s.dx[i] = (b[i] - sum) / a[i * n + i];
+        }
     }
 
     fn cost_zc(&self, poses: &[PoseSe2], timediffs: &[f64],

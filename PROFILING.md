@@ -235,3 +235,47 @@ pub enum EdgeEnum {
 - All 12 edge types updated
 - `Edge::error_with_distance()` also returns `[f64; 2]`
 - Eliminates `Vector2::new()` heap allocation per edge error call
+
+## Optimization Applied: In-Place LU Solver (DMatrix/DVector Eliminated)
+
+### What Changed
+Replaced `nalgebra::DMatrix`/`DVector`/`LU` with a hand-written in-place LU decomposition
+with partial pivoting. All arrays are pre-allocated in `ScratchBuffers`.
+
+**Before (3 allocations per solve):**
+```rust
+let mat = DMatrix::from_row_slice(n, n, &s.Ata[..n*n]);  // heap allocation
+let b = DVector::from_vec(s.Atb[..n].to_vec());           // heap + copy
+let lu = LU::new(mat);                                    // heap allocation
+```
+
+**After (0 allocations):**
+```rust
+// Solve in-place using s.Ata[..n*n] and s.Atb[..n]
+// Forward substitution: solve Ly = Pb
+// Back substitution: solve Ux = y
+// Result stored directly in s.dx[..n]
+```
+
+### Allocations Eliminated Per Inner Iteration
+| Allocation | Before | After |
+|-----------|--------|-------|
+| `DMatrix` (n×n) | 1 | **0** |
+| `DVector` (n) | 1 | 0 |
+| `LU` factorization | 1 | 0 |
+| **Total** | **3** | **0** |
+
+### Per Optimization Pass (20 poses × 20 inner iters)
+- **Before:** 60 matrix/vector allocations for solve
+- **After:** 0
+
+### Algorithm
+1. **LU decomposition with partial pivoting** — O(n³), in-place on `s.Ata`
+2. **Forward substitution** — O(n²), in-place on `s.Atb`
+3. **Back substitution** — O(n²), stores result in `s.dx`
+
+### Matrix Size
+For 20 poses: n_params = 2*(18) + 19 = 55 → 55×55 matrix
+- Decomposition: ~166K f64 multiplications
+- Forward/Back sub: ~6K each
+- Total: ~178K f64 operations per solve, vs ~60 Vec/DMatrix heap allocs avoided
