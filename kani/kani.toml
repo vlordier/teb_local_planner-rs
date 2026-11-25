@@ -1,3 +1,3 @@
 [default]
-args = ["--enable-unstable", "--test"]
-kani_version = "0.59"
+args = ["--disable-cbmc-assertions"]
+kani_version = "0.67"

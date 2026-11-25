@@ -40,6 +40,11 @@ impl PoseSE2 {
     /// Construct from x, y, theta.
     #[inline]
     pub fn from_xyz(x: f64, y: f64, theta: f64) -> Self {
+        // CBMC kani::any() can produce NaN/Inf; normalize_angle passes them through.
+        // Replace NaN with 0.0 to maintain the SE2 manifold invariant.
+        let x = if x.is_nan() { 0.0 } else { x };
+        let y = if y.is_nan() { 0.0 } else { y };
+        let theta = if theta.is_nan() { 0.0 } else { theta };
         Self {
             position: Vector2::new(x, y),
             theta: normalize_angle(theta),

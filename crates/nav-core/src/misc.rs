@@ -5,14 +5,23 @@ pub const SMALL_NUM: f64 = 1e-8;
 
 /// Normalize angle to [-pi, pi]. Same as g2o::normalize_theta (C++).
 pub fn normalize_angle(mut angle: f64) -> f64 {
-    let two_pi = 2.0 * std::f64::consts::PI;
+    // NaN and Inf pass through unchanged — intentional for CBMC
+    // compatibility and matches g2o behavior where NaN angles are
+    // undefined and the caller must handle them.
+    if angle.is_nan() || angle.is_infinite() {
+        return angle;
+    }
+    // Use compile-time constant for CBMC floatbv reasoning.
+    // CBMC can prove x % immediate_constant properties for concrete values,
+    // but not x % symbolic_f64_divisor.
+    const TWO_PI: f64 = 2.0 * std::f64::consts::PI;
     // Match g2o::normalize_theta: fmod first, then adjust
     // fmod returns result with same sign as dividend
-    angle = angle % two_pi;
+    angle = angle % TWO_PI;
     if angle < -std::f64::consts::PI {
-        angle += two_pi;
+        angle += TWO_PI;
     } else if angle >= std::f64::consts::PI {
-        angle -= two_pi;
+        angle -= TWO_PI;
     }
     angle
 }
