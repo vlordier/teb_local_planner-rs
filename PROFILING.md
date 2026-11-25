@@ -279,3 +279,40 @@ For 20 poses: n_params = 2*(18) + 19 = 55 → 55×55 matrix
 - Decomposition: ~166K f64 multiplications
 - Forward/Back sub: ~6K each
 - Total: ~178K f64 operations per solve, vs ~60 Vec/DMatrix heap allocs avoided
+
+## Optimization Applied: cost_zc In-Place Perturbation
+
+### What Changed
+`cost_zc` previously allocated `Vec<PoseSe2>` and `Vec<f64>` copies of the full pose/timediff
+arrays, applied perturbation to the copies, computed cost, and returned. Now:
+
+- Perturbation applied **in-place** to `poses`/`timediffs` slices
+- Save/restore uses pre-allocated `pose_save`/`td_save` buffers in `ScratchBuffers`
+- No Vec allocation per `cost_zc` call
+
+### Before (per cost_zc call)
+```rust
+let mut pos = poses.to_vec();    // 20 poses × 24 bytes = 480 bytes alloc
+let mut td = timediffs.to_vec(); // 20 f64s = 160 bytes alloc
+// ... apply perturbation to copies ...
+```
+
+### After
+```rust
+// Uses s.pose_save[..] and s.td_save[..] — pre-allocated at construction
+s.pose_save[pose_idx] = poses[pose_idx];  // save
+poses[pose_idx].set_x(x[pi]);              // perturb
+// ... compute cost ...
+poses[pose_idx] = s.pose_save[pose_idx];   // restore
+```
+
+### Allocations Eliminated
+| Per cost_zc call | Before | After |
+|---|---|---|
+| Pose copy Vec | 1 | **0** |
+| Timediff copy Vec | 1 | **0** |
+| **Total** | **2** | **0** |
+
+### Per Optimization Pass (20 poses × 2 calls per inner iter × 3 inner iters)
+- **Before:** 12 Vec allocations for cost_zc
+- **After:** 0

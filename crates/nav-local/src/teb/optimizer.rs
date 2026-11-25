@@ -45,6 +45,10 @@ pub struct ScratchBuffers {
     Ata: Vec<f64>,
     /// Normal equation vector Atb.
     Atb: Vec<f64>,
+    /// Temp buffer for pose save/restore in cost_zc.
+    pose_save: Vec<PoseSe2>,
+    /// Temp buffer for timediff save/restore in cost_zc.
+    td_save: Vec<f64>,
 }
 
 impl ScratchBuffers {
@@ -58,6 +62,8 @@ impl ScratchBuffers {
             dx: vec![0.0f64; n_params.max(1)],
             Ata: vec![0.0f64; n_params.max(1) * n_params.max(1)],
             Atb: vec![0.0f64; n_params.max(1)],
+            pose_save: vec![PoseSe2::zero(); n_poses.max(1)],
+            td_save: vec![0.0f64; n_timediffs.max(1)],
         }
     }
 
@@ -163,14 +169,13 @@ impl TEBOptimizer {
         success
     }
 
-    /// Build all edges (mirrors C++ buildGraph + AddEdges*).
+    /// Build all edges.
     fn build_edges(&self, weight_multiplier: f64) -> Vec<EdgeEnum> {
         let n = self.band.size_poses();
         if n < 2 {
             return Vec::new();
         }
-
-        let mut edges: Vec<EdgeEnum> = Vec::new();
+        let mut edges = Vec::with_capacity((n - 1) * 3 + (n - 2) + 1);
         let weights = &self.config.optim;
         let robot = &self.config.robot;
 
@@ -255,8 +260,8 @@ impl TEBOptimizer {
         if n_params == 0 { return true; }
 
         // Copy band data once
-        let poses: Vec<PoseSe2> = (0..n_poses).map(|i| *self.band.pose(i)).collect();
-        let timediffs: Vec<f64> = (0..n_td).map(|i| self.band.timediff(i)).collect();
+        let mut poses: Vec<PoseSe2> = (0..n_poses).map(|i| *self.band.pose(i)).collect();
+        let mut timediffs: Vec<f64> = (0..n_td).map(|i| self.band.timediff(i)).collect();
 
         // Ensure scratch capacity
         let max_res: usize = edges.iter().filter(|e| e.enabled()).count() * 2;
@@ -299,8 +304,8 @@ impl TEBOptimizer {
 
             // Save x, compute cost at x - dx
             let x_save: Vec<f64> = self.scratch.dx[..n_params].to_vec();
-            let cost_new = self.cost_zc(&poses, &timediffs, edges, &free_pose, td_offset, n_params, true);
-            let cost_old = self.cost_zc(&poses, &timediffs, edges, &free_pose, td_offset, n_params, false);
+            let cost_new = self.cost_zc(&mut poses[..], &mut timediffs[..], edges, &free_pose, td_offset, n_params, true);
+            let cost_old = self.cost_zc(&mut poses[..], &mut timediffs[..], edges, &free_pose, td_offset, n_params, false);
 
             if cost_new < cost_old {
                 let rho = 0.5 * self.scratch.dx[..n_params].iter()
@@ -500,14 +505,15 @@ impl TEBOptimizer {
         }
     }
 
-    fn cost_zc(&self, poses: &[PoseSe2], timediffs: &[f64],
+    /// Compute cost with in-place perturbation — uses pre-allocated scratch buffers.
+    fn cost_zc(&mut self, poses: &mut [PoseSe2], timediffs: &mut [f64],
                edges: &[EdgeEnum], free_pose: &[usize],
                td_offset: usize, n: usize, use_dx: bool) -> f64 {
-        let mut pos = poses.to_vec();
-        let mut td = timediffs.to_vec();
-        let x = if use_dx { &self.scratch.dx[..n] } else { &self.scratch.dx[..n] };
+        let s = &mut self.scratch;
+        let x = &s.dx[..n];
         let max_fb = free_pose.iter().filter(|&&b| b != usize::MAX).copied().max().unwrap_or(0);
 
+        // Save and perturb in-place using pre-allocated buffers
         for pi in 0..n {
             if pi <= max_fb + 1 {
                 let mut pose_idx = 0usize;
@@ -519,23 +525,52 @@ impl TEBOptimizer {
                         break;
                     }
                 }
-                if pose_idx < pos.len() {
-                    let p = pos[pose_idx];
-                    if comp == 0 { pos[pose_idx].set_x(x[pi]); }
-                    else { pos[pose_idx].set_y(x[pi]); }
+                if pose_idx < poses.len() {
+                    let p = poses[pose_idx];
+                    s.pose_save[pose_idx] = p;  // save original
+                    if comp == 0 { poses[pose_idx].set_x(x[pi]); }
+                    else { poses[pose_idx].set_y(x[pi]); }
                 }
             } else {
                 let td_idx = pi - td_offset;
-                if td_idx >= 0 && td_idx < td.len() { td[td_idx] = x[pi]; }
+                if td_idx >= 0 && td_idx < timediffs.len() {
+                    s.td_save[td_idx] = timediffs[td_idx];  // save original
+                    timediffs[td_idx] = x[pi];
+                }
             }
         }
 
+        // Compute cost with perturbed values
         let mut total = 0.0;
         for edge in edges {
             if !edge.enabled() { continue; }
-            let e = edge.error(&pos, &td);
+            let e = edge.error(poses, timediffs);
             total += e[0] * e[0] + e[1] * e[1];
         }
+
+        // Restore original values from scratch buffers
+        for pi in 0..n {
+            if pi <= max_fb + 1 {
+                let mut pose_idx = 0usize;
+                let mut comp = 0usize;
+                for (j, &base) in free_pose.iter().enumerate() {
+                    if base != usize::MAX && base <= pi && pi < base + 2 {
+                        pose_idx = j;
+                        comp = pi - base;
+                        break;
+                    }
+                }
+                if pose_idx < poses.len() {
+                    poses[pose_idx] = s.pose_save[pose_idx];
+                }
+            } else {
+                let td_idx = pi - td_offset;
+                if td_idx >= 0 && td_idx < timediffs.len() {
+                    timediffs[td_idx] = s.td_save[td_idx];
+                }
+            }
+        }
+
         total
     }
 
