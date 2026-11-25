@@ -132,12 +132,17 @@ pub fn dubins_path_from_poses(
         .min_by(|a, b| a.total.partial_cmp(&b.total).unwrap());
 
     best.map(|np| {
+        // Clamp tiny negatives to zero (numerical precision from acos/sqrt)
+        let s0 = np.parts[0].1.max(0.0);
+        let s1 = np.parts[1].1.max(0.0);
+        let s2 = np.parts[2].1.max(0.0);
+        let total = s0 + s1 + s2;
         let segments = [
-            DubinsSegment { kind: np.parts[0].0, length: np.parts[0].1 * radius },
-            DubinsSegment { kind: np.parts[1].0, length: np.parts[1].1 * radius },
-            DubinsSegment { kind: np.parts[2].0, length: np.parts[2].1 * radius },
+            DubinsSegment { kind: np.parts[0].0, length: s0 * radius },
+            DubinsSegment { kind: np.parts[1].0, length: s1 * radius },
+            DubinsSegment { kind: np.parts[2].0, length: s2 * radius },
         ];
-        DubinsPath::new(segments, np.total * radius)
+        DubinsPath::new(segments, total * radius)
     })
 }
 
