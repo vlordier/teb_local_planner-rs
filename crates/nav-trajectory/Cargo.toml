@@ -1,0 +1,11 @@
+[package]
+name = "nav-trajectory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Trajectory primitives: Dubins, Reeds-Shepp, splines, time parameterization"
+
+[dependencies]
+nalgebra.workspace = true
+nav-core.workspace = true
+approx = "0.5"
