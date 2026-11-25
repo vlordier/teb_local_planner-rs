@@ -1,0 +1,10 @@
+[package]
+name = "nav-global"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Global path planning: A*, Hybrid A*, D* Lite, RRT*"
+
+[dependencies]
+nalgebra.workspace = true
+approx = "0.5"
