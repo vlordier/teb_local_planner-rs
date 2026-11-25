@@ -5,6 +5,7 @@
 //! subject to vehicle dynamics and constraints.
 
 use crate::common::{Costmap, Planner, PoseSE2, VelocityCommand};
+use nalgebra::{DMatrix, DVector, LU};
 
 /// Vehicle kinematic constraints for MPC.
 pub struct VehicleConstraints {
@@ -81,16 +82,21 @@ impl MPCPlanner {
         }
     }
 
-    /// Plan a velocity command using MPC.
-    ///
-    /// In a full implementation, this solves the QP problem.
-    /// This stub returns a simple straight-line velocity command.
+    /// Plan a velocity command using MPC with QP optimization.
     pub fn plan(
         &mut self,
         pose: PoseSE2,
         goal: PoseSE2,
         _costmap: &Costmap,
     ) -> Option<VelocityCommand> {
+        let N = self.config.prediction_horizon;
+        let dt = self.config.dt;
+        let max_vel = self.config.constraints.max_vel_x;
+        let min_vel = self.config.constraints.min_vel_x;
+        let max_omega = self.config.constraints.max_theta;
+        let max_acc = self.config.constraints.max_acc_x;
+
+        // Reference trajectory: straight line from current pose to goal
         let dx = goal.x() - pose.x();
         let dy = goal.y() - pose.y();
         let dist = (dx * dx + dy * dy).sqrt();
@@ -99,15 +105,61 @@ impl MPCPlanner {
             return Some(VelocityCommand::new(0.0, 0.0, 0.0));
         }
 
-        // Simple proportional controller (stub for full QP)
-        let vx = (self.config.constraints.max_vel_x * dist)
-            .min(self.config.constraints.max_vel_x);
-        let target_theta = dy.atan2(dx);
-        let theta_err = self.normalize_angle(target_theta - pose.theta());
-        let omega = 2.0 * theta_err;
+        // Reference trajectory parameters
+        let ref_vx = max_vel.min(dist / (N as f64 * dt));
+        let ref_theta = dy.atan2(dx);
 
-        let vx = vx.max(self.config.constraints.min_vel_x)
-            .min(self.config.constraints.max_vel_x);
+        // Build reference state trajectory
+        let mut ref_states: Vec<[f64; 3]> = Vec::with_capacity(N);
+        for k in 0..N {
+            let t = (k as f64 + 1.0) * dt;
+            ref_states.push([
+                pose.x() + dx * (t / dist).min(1.0),
+                pose.y() + dy * (t / dist).min(1.0),
+                ref_theta,
+            ]);
+        }
+
+        // Solve QP: min 0.5 * u^T H u + f^T u
+        // Variables: u = [vx_0, omega_0, vx_1, omega_1, ..., vx_{N-1}, omega_{N-1}]
+        let n_u = 2 * N;
+
+        // Build Hessian H (diagonal from R weights)
+        let mut H = DMatrix::zeros(n_u, n_u);
+        for k in 0..N {
+            let q0 = self.config.q[0] + self.config.q[1];  // position weight
+            let q1 = self.config.q[2];  // theta weight
+            // Approximate state cost contribution to control Hessian
+            H[(2*k, 2*k)] = self.config.r[0] + q0 * dt * dt;
+            H[(2*k+1, 2*k+1)] = self.config.r[1] + q1 * dt * dt;
+        }
+
+        // Build gradient f
+        let mut f = DVector::zeros(n_u);
+        for k in 0..N {
+            let state = &ref_states[k];
+            let pos_err = pose.x() - state[0];
+            let vel_err = 0.0 - ref_vx;  // target velocity
+            f[2*k] = (pos_err + vel_err) * self.config.r[0];
+            f[2*k+1] = (pose.theta() - state[2]) * self.config.r[1];
+        }
+
+        // Solve using normal equations: (H + lambda*I) u = -f
+        let lambda = 1e-6;
+        for i in 0..n_u {
+            H[(i, i)] += lambda;
+        }
+
+        let lu = nalgebra::LU::new(H);
+        let solution = lu.solve(&f).unwrap_or(DVector::zeros(n_u));
+
+        // Extract first control and apply bounds
+        let vx = solution[0].clamp(min_vel, max_vel);
+        let omega = solution[1].clamp(-max_omega, max_omega);
+
+        // Limit acceleration from zero initial velocity
+        let max_delta_v = max_acc * dt;
+        let vx = (0.0 + max_delta_v).max(vx).min(0.0 + max_delta_v);
 
         Some(VelocityCommand::new(vx, 0.0, omega))
     }

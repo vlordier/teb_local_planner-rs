@@ -59,11 +59,13 @@ pub struct Trajectory {
     pub cost: f64,
     pub near_goal: bool,
     pub clear: bool,
+    pub heading_score: f64,
+    pub vel_score: f64,
 }
 
-/// Differential Drive Wedge Area planner.
 pub struct DWAPlanner {
     pub config: DWAConfig,
+    goal: Option<PoseSE2>,
 }
 
 impl DWAPlanner {
@@ -72,10 +74,45 @@ impl DWAPlanner {
     }
 
     pub fn new_with_config(config: DWAConfig) -> Self {
-        Self { config }
+        Self { config, goal: None }
     }
 
-    /// Evaluate a trajectory candidate.
+    /// Set the current goal pose.
+    pub fn set_goal(&mut self, goal: PoseSE2) {
+        self.goal = Some(goal);
+    }
+
+    /// Check if a velocity command is dynamically feasible.
+    fn is_feasible(&self, current_vx: f64, current_omega: f64,
+                   new_vx: f64, new_omega: f64, dt: f64) -> bool {
+        // Linear acceleration check
+        let acc_x = (new_vx - current_vx).abs() / dt;
+        let max_acc = self.config.acc_linear_max.abs().max(-self.config.acc_linear_min).max(0.01);
+        if acc_x > max_acc {
+            let stop_dist = current_vx * current_vx / (2.0 * max_acc);
+            if stop_dist > self.config.window_duration * current_vx.abs() * 2.0 {
+                return false;
+            }
+        }
+
+        // Angular acceleration check
+        let acc_theta = (new_omega - current_omega).abs() / dt;
+        if acc_theta > self.config.acc_angular_max.abs() {
+            return false;
+        }
+
+        // Velocity bounds check
+        if new_vx < self.config.vel_min || new_vx > self.config.vel_max {
+            return false;
+        }
+        if new_omega < self.config.yaw_rate_min || new_omega > self.config.yaw_rate_max {
+            return false;
+        }
+
+        true
+    }
+
+    /// Evaluate a trajectory candidate with proper scoring.
     pub fn evaluate_trajectory(
         &self,
         pose: PoseSE2,
@@ -83,11 +120,16 @@ impl DWAPlanner {
         _vy: f64,
         omega: f64,
         costmap: &Costmap,
+        goal: &PoseSE2,
     ) -> Trajectory {
-        let mut near_goal = false;
-        let mut clear = true;
         let dt = self.config.dt_for_dist_calc;
-        let t_samples = (self.config.window_duration / dt) as usize;
+        let t_samples = (self.config.window_duration / dt).max(1.0) as usize;
+
+        let mut clear = true;
+        let mut min_dist_to_goal = f64::INFINITY;
+        let mut final_x = pose.x();
+        let mut final_y = pose.y();
+        let mut final_theta = pose.theta();
 
         for t in 0..t_samples {
             let step_t = (t as f64 + 1.0) * dt;
@@ -102,19 +144,42 @@ impl DWAPlanner {
                 }
             }
 
-            // Check if near goal (within 2.0m)
-            let dx = sim_x - pose.x();
-            let dy = sim_y - pose.y();
-            if (dx * dx + dy * dy).sqrt() > 2.0 {
-                near_goal = false;
+            // Track minimum distance to goal
+            let dx = sim_x - goal.x();
+            let dy = sim_y - goal.y();
+            let dist_to_goal = (dx * dx + dy * dy).sqrt();
+            if dist_to_goal < min_dist_to_goal {
+                min_dist_to_goal = dist_to_goal;
             }
+
+            // Track final state
+            final_x = sim_x;
+            final_y = sim_y;
+            final_theta = pose.theta();
         }
+
+        let near_goal = min_dist_to_goal < 2.0;
+
+        // Heading score: alignment between final heading and goal direction
+        let heading_target = (final_y - pose.y()).atan2(final_x - pose.x());
+        let mut heading_diff = (heading_target - final_theta).abs();
+        if heading_diff > std::f64::consts::PI {
+            heading_diff = 2.0 * std::f64::consts::PI - heading_diff;
+        }
+        let heading_score = heading_diff / std::f64::consts::PI;
+
+        // Velocity score: prefer higher velocities, normalized to [0, 1]
+        let vel_score = if vx >= 0.0 {
+            vx / self.config.vel_max.max(0.01)
+        } else {
+            -vx / (-self.config.vel_min).max(0.01)
+        }.min(1.0);
 
         let cost = if !clear {
             f64::INFINITY
         } else {
-            let dist_to_goal = 0.0; // stub: would use goal pose
-            1.0 / (1.0 + dist_to_goal)
+            let dist_score = 1.0 / (1.0 + min_dist_to_goal);
+            3.0 * dist_score + 1.0 * (1.0 - heading_score) + 1.0 * vel_score
         };
 
         Trajectory {
@@ -124,6 +189,8 @@ impl DWAPlanner {
             cost,
             near_goal,
             clear,
+            heading_score,
+            vel_score,
         }
     }
 
@@ -131,11 +198,13 @@ impl DWAPlanner {
     pub fn plan(
         &mut self,
         pose: PoseSE2,
-        _goal: PoseSE2,
+        goal: PoseSE2,
         costmap: &Costmap,
     ) -> Option<VelocityCommand> {
-        let vx_samples = 5;
-        let omega_samples = 5;
+        self.set_goal(goal);
+
+        let vx_samples = 8;
+        let omega_samples = 8;
         let vx_step = (self.config.vel_max - self.config.vel_min) / vx_samples as f64;
         let omega_step = (self.config.yaw_rate_max - self.config.yaw_rate_min)
             / omega_samples as f64;
@@ -143,20 +212,23 @@ impl DWAPlanner {
         let mut best_traj: Option<Trajectory> = None;
         let mut best_score = f64::INFINITY;
 
-        for vi in 0..vx_samples {
-            for wi in 0..omega_samples {
+        for vi in 0..=vx_samples {
+            for wi in 0..=omega_samples {
                 let vx = self.config.vel_min + vi as f64 * vx_step;
                 let omega = self.config.yaw_rate_min + wi as f64 * omega_step;
 
-                let traj = self.evaluate_trajectory(pose, vx, 0.0, omega, costmap);
+                if !self.is_feasible(vx, 0.0, vx, omega, self.config.dt_for_dist_calc) {
+                    continue;
+                }
+
+                let traj = self.evaluate_trajectory(pose, vx, 0.0, omega, costmap, &goal);
 
                 if !traj.clear {
                     continue;
                 }
 
-                let score = traj.cost;
-                if score < best_score {
-                    best_score = score;
+                if traj.cost < best_score {
+                    best_score = traj.cost;
                     best_traj = Some(traj);
                 }
             }
@@ -191,9 +263,12 @@ mod tests {
     fn test_evaluate_trajectory_clear() {
         let planner = DWAPlanner::new();
         let pose = PoseSE2::from_xyz(0.0, 0.0, 0.0);
+        let goal = PoseSE2::from_xyz(5.0, 0.0, 0.0);
         let costmap = Costmap(vec![0.0; 100 * 100]);
-        let traj = planner.evaluate_trajectory(pose, 0.5, 0.0, 0.0, &costmap);
+        let traj = planner.evaluate_trajectory(pose, 0.5, 0.0, 0.0, &costmap, &goal);
         assert!(traj.clear);
         assert!(traj.cost.is_finite());
+        assert!(traj.heading_score >= 0.0 && traj.heading_score <= 1.0);
+        assert!(traj.vel_score >= 0.0 && traj.vel_score <= 1.0);
     }
 }
