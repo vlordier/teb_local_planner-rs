@@ -146,6 +146,11 @@ impl TEBOptimizer {
         self.max_inner_iterations = n;
     }
 
+    /// Get a reference to the internal band (for inspection after optimization).
+    pub fn band(&self) -> &TimedElasticBand {
+        &self.band
+    }
+
     /// Run the full optimization (mirrors C++ optimizeTEB).
     pub fn optimize(&mut self) -> bool {
         let weight_adapt_factor = self.config.optim.weight_adapt_factor;

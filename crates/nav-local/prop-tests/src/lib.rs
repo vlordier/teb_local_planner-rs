@@ -241,3 +241,168 @@ mod dwa_prop {
         }
     }
 }
+mod optimizer_prop {
+    use nav_core::constraints::TebConfig;
+    use nav_local::teb::pose_se2::PoseSe2;
+    use nav_local::teb::band::TimedElasticBand;
+    use nav_local::teb::optimizer::TEBOptimizer;
+    use proptest::prelude::*;
+
+    /// Optimization does not crash on valid input.
+    #[test]
+    fn optimizer_no_panic_on_valid_input() {
+        proptest! {
+            #[allow(clippy::float_cmp)]
+            fn optimizer_no_panic(
+                x_start: f64, y_start: f64, theta_start: f64,
+                x_goal: f64, y_goal: f64, _theta_goal: f64,
+            ) {
+                let start = PoseSe2::from_components(x_start, y_start, theta_start);
+                let goal = PoseSe2::from_components(x_goal, y_goal, 0.0);
+                let mut band = TimedElasticBand::new();
+                band.add_pose(start, true);
+                band.add_pose_and_timediff(goal, 1.0);
+
+                let config = TebConfig::default();
+                let mut optimizer = TEBOptimizer::new(band, config);
+                optimizer.set_max_outer_iterations(3);
+                optimizer.set_max_inner_iterations(10);
+
+                // Should not panic
+                let _ = optimizer.optimize();
+            }
+        }
+    }
+
+    /// Optimization preserves start pose (first pose is fixed).
+    #[test]
+    fn optimizer_preserves_start_pose() {
+        proptest! {
+            fn optimizer_preserves_start(
+                start_x: f64, start_y: f64, start_theta: f64,
+                goal_x: f64, goal_y: f64, _goal_theta: f64,
+            ) {
+                let start = PoseSe2::from_components(start_x, start_y, start_theta);
+                let goal = PoseSe2::from_components(goal_x, goal_y, 0.0);
+                let mut band = TimedElasticBand::new();
+                band.add_pose(start, true);
+                band.add_pose_and_timediff(goal, 1.0);
+                let initial_start = band.pose(0).clone();
+                let config = TebConfig::default();
+                let mut optimizer = TEBOptimizer::new(band, config);
+                optimizer.set_max_outer_iterations(3);
+                optimizer.set_max_inner_iterations(10);
+                let _ = optimizer.optimize();
+
+                assert!((optimizer.band().pose(0).x() - initial_start.x()).abs() < 1e-10);
+                assert!((optimizer.band().pose(0).y() - initial_start.y()).abs() < 1e-10);
+            }
+        }
+    }
+
+    /// Optimization preserves goal pose (last pose is fixed).
+    #[test]
+    fn optimizer_preserves_goal_pose() {
+        proptest! {
+            fn optimizer_preserves_goal(
+                start_x: f64, start_y: f64, _start_theta: f64,
+                goal_x: f64, goal_y: f64, goal_theta: f64,
+            ) {
+                let start = PoseSe2::from_components(start_x, start_y, 0.0);
+                let goal = PoseSe2::from_components(goal_x, goal_y, goal_theta);
+                let mut band = TimedElasticBand::new();
+                band.add_pose(start, true);
+                band.add_pose_and_timediff(goal, 1.0);
+
+                let initial_goal = band.pose(1).clone();
+                let config = TebConfig::default();
+                let mut optimizer = TEBOptimizer::new(band, config);
+                optimizer.set_max_outer_iterations(3);
+                optimizer.set_max_inner_iterations(10);
+                let _ = optimizer.optimize();
+
+                assert!((optimizer.band().pose(1).x() - initial_goal.x()).abs() < 1e-10);
+                assert!((optimizer.band().pose(1).y() - initial_goal.y()).abs() < 1e-10);
+            }
+        }
+    }
+
+    /// Time diffs remain positive after optimization.
+    #[test]
+    fn optimizer_time_diffs_positive() {
+        proptest! {
+            fn optimizer_time_diffs_positive(
+                start_x: f64, start_y: f64, _start_theta: f64,
+                goal_x: f64, goal_y: f64, _goal_theta: f64,
+            ) {
+                let start = PoseSe2::from_components(start_x, start_y, 0.0);
+                let goal = PoseSe2::from_components(goal_x, goal_y, 0.0);
+                let mut band = TimedElasticBand::new();
+                band.add_pose(start, true);
+                band.add_pose_and_timediff(goal, 1.0);
+
+                let config = TebConfig::default();
+                let mut optimizer = TEBOptimizer::new(band, config);
+                optimizer.set_max_outer_iterations(5);
+                optimizer.set_max_inner_iterations(20);
+                let _ = optimizer.optimize();
+
+                for i in 0..optimizer.band().size_time_diffs() {
+                    let td = optimizer.band().timediff(i);
+                    assert!(td > 0.0, "Time diff at {} is {} (should be > 0)", i, td);
+                }
+            }
+        }
+    }
+
+    /// Optimization with multiple intermediate poses does not panic.
+    #[test]
+    fn optimizer_multi_pose_stability() {
+        proptest! {
+            fn optimizer_multi_pose(
+                x_start: f64, x_end: f64, y_start: f64, y_end: f64, n: usize,
+            ) {
+                let x_start = x_start.abs() % 100.0;
+                let x_end = x_end.abs() % 100.0;
+                let y_start = y_start.abs() % 100.0;
+                let y_end = y_end.abs() % 100.0;
+                let n = n % 10 + 2;
+
+                let mut band = TimedElasticBand::new();
+                band.add_pose(PoseSe2::from_components(0.0, 0.0, 0.0), true);
+
+                for i in 0..n {
+                    let t = (i as f64) / (n + 1) as f64;
+                    let px = x_start + t * (x_end - x_start);
+                    let py = y_start + t * (y_end - y_start);
+                    band.add_pose_and_timediff(PoseSe2::from_components(px, py, 0.0), 0.5);
+                }
+
+                let config = TebConfig::default();
+                let mut optimizer = TEBOptimizer::new(band, config);
+                optimizer.set_max_outer_iterations(3);
+                optimizer.set_max_inner_iterations(10);
+                let _ = optimizer.optimize();
+            }
+        }
+    }
+
+    /// Optimize returns false for empty band.
+    #[test]
+    fn optimizer_empty_band_returns_false() {
+        let band = TimedElasticBand::new();
+        let config = TebConfig::default();
+        let mut optimizer = TEBOptimizer::new(band, config);
+        assert!(!optimizer.optimize());
+    }
+
+    /// Optimize returns false for band with only 1 pose (no time diffs).
+    #[test]
+    fn optimizer_single_pose_returns_false() {
+        let mut band = TimedElasticBand::new();
+        band.add_pose(PoseSe2::from_components(0.0, 0.0, 0.0), true);
+        let config = TebConfig::default();
+        let mut optimizer = TEBOptimizer::new(band, config);
+        assert!(!optimizer.optimize());
+    }
+}
