@@ -241,7 +241,7 @@ impl EdgeShortestPath {
 impl Edge for EdgeShortestPath {
     fn num_vertices(&self) -> usize { 2 }
     fn vertex_indices(&self) -> &[usize] { &[] }
-    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], _timediffs: &[f64]) -> [f64; 2] {
+    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], timediffs: &[f64]) -> [f64; 2] {
         let delta = poses[self.idx_next].position() - poses[self.idx_prev].position();
         [delta[0], delta[1]]
     }
@@ -455,7 +455,7 @@ impl Edge for EdgeKinematicsDiffDrive {
     fn num_vertices(&self) -> usize { 2 }
     fn vertex_indices(&self) -> &[usize] { &[] }
 
-    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], _timediffs: &[f64]) -> [f64; 2] {
+    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], timediffs: &[f64]) -> [f64; 2] {
         let p1 = &poses[self.idx_start];
         let p2 = &poses[self.idx_end];
         let delta = p2.position() - p1.position();
@@ -495,7 +495,7 @@ impl Edge for EdgeKinematicsCarlike {
     fn num_vertices(&self) -> usize { 2 }
     fn vertex_indices(&self) -> &[usize] { &[] }
 
-    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], _timediffs: &[f64]) -> [f64; 2] {
+    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], timediffs: &[f64]) -> [f64; 2] {
         let p1 = &poses[self.idx_start];
         let p2 = &poses[self.idx_end];
         let delta = p2.position() - p1.position();
@@ -544,7 +544,7 @@ impl EdgeObstacle {
 impl Edge for EdgeObstacle {
     fn num_vertices(&self) -> usize { 1 }
     fn vertex_indices(&self) -> &[usize] { &[] }
-    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], _timediffs: &[f64]) -> [f64; 2] {
+    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], timediffs: &[f64]) -> [f64; 2] {
         let _ = poses;
         [0.0, 0.0]
     }
@@ -571,7 +571,7 @@ impl Edge for EdgePreferRotDir {
     fn num_vertices(&self) -> usize { 2 }
     fn vertex_indices(&self) -> &[usize] { &[] }
 
-    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], _timediffs: &[f64]) -> [f64; 2] {
+    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], timediffs: &[f64]) -> [f64; 2] {
         let angle_diff = crate::teb::math::normalize_theta(poses[self.idx_end].theta() - poses[self.idx_start].theta());
         let e = crate::teb::math::penalty_bound_from_below(self.sign as f64 * angle_diff, 0.0, 0.0);
         [e, 0.0]
@@ -600,7 +600,7 @@ impl Edge for EdgeViaPoint {
     fn num_vertices(&self) -> usize { 1 }
     fn vertex_indices(&self) -> &[usize] { &[] }
 
-    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], _timediffs: &[f64]) -> [f64; 2] {
+    fn error(&self, poses: &[crate::teb::pose_se2::PoseSe2], timediffs: &[f64]) -> [f64; 2] {
         let err: Vector2<f64> = poses[self.idx_pose].position() - self.via_point.coords;
         [err.norm(), 0.0]
     }
@@ -1031,7 +1031,7 @@ impl EdgeEnum {
     /// Compute analytical Jacobian columns for edges where derivatives are known.
     #[inline]
     pub fn compute_jac_into(&self, poses: &[crate::teb::pose_se2::PoseSe2],
-                            _timediffs: &[f64], jac: &mut [f64], n_params: usize,
+                            timediffs: &[f64], jac: &mut [f64], n_params: usize,
                             n_residuals: usize) -> bool {
         match self {
             EdgeEnum::TimeOptimal(p) => {
@@ -1051,6 +1051,131 @@ impl EdgeEnum {
                     let fpn = p.idx_next - 1;
                     jac[fpn * 2 * n_residuals] = 1.0;
                     jac[(fpn * 2 + 1) * n_residuals + 1] = 1.0;
+                }
+                true
+            }
+            EdgeEnum::Velocity(p) => {
+                if p.weight_vx <= 0.0 && p.weight_omega <= 0.0 { return true; }
+
+                let p1 = &poses[p.idx_start];
+                let p2 = &poses[p.idx_end];
+                let dt = timediffs[p.idx_timediff];
+                if dt <= 1e-10 { return true; } // singular, Jacobian already zero
+
+                // Pre-compute geometry
+                let dx = p2.x() - p1.x();
+                let dy = p2.y() - p1.y();
+                let dist_sq = dx * dx + dy * dy;
+                let dist = dist_sq.sqrt();
+                if dist < 1e-12 { return true; } // degenerate
+
+                let cos1 = p1.theta().cos();
+                let sin1 = p1.theta().sin();
+                let dot = dx * cos1 + dy * sin1;
+                let dot_scaled = 100.0 * dot;
+                let direction = crate::teb::math::fast_sigmoid(dot_scaled);
+
+                // d(dist)/d(p)
+                let dx_dist = dx / dist; // d(dist)/d(dx)
+                let dy_dist = dy / dist; // d(dist)/d(dy)
+
+                // d(direction)/d(p) = sigmoid'(arg) * d(arg)/d(p)
+                // sigmoid(x) = x/(1+|x|), derivative = 1/(1+|x|)^2
+                // fast_sigmoid(x) ≈ sigmoid(x/100) * 100, so d/dx = 0.1 * sigmoid'(x/100)
+                let ddir_darg = if dot_scaled.abs() > 100.0 {
+                    0.0
+                } else {
+                    0.1 / (1.0 + (dot).abs()).powi(2)
+                };
+
+                // d(dist)/d(dt) = -dist/dt² * direction → dvel/dt
+                // dvel/dx = (d(dist)/dx * direction + dist * d(direction)/dx) / dt
+                // dvel/dy = (d(dist)/dy * direction + dist * d(direction)/dy) / dt
+
+                let dvel_dx1 = -(dx_dist * direction + dist * ddir_darg * cos1) / dt;
+                let dvel_dy1 = -(dy_dist * direction + dist * ddir_darg * sin1) / dt;
+                let dvel_dx2 = dx_dist * direction / dt;
+                let dvel_dy2 = dy_dist * direction / dt;
+                let dvel_dt = -(dist * direction) / (dt * dt);
+
+                // d(omega)/d(p) = d/dp(angle_diff/dt) = d(angle_diff)/dt / dt
+                let angle_diff = crate::teb::math::normalize_theta(p2.theta() - p1.theta());
+                // d(angle_diff)/d(x1) = 0, d(angle_diff)/d(y1) = 0, d(angle_diff)/d(x2) = 0, d(angle_diff)/d(y2) = 0
+                // d(angle_diff)/d(theta1) = -1, d(angle_diff)/d(theta2) = 1
+                // But theta is NOT a free parameter — it doesn't appear in the parameter vector
+                // So omega derivatives w.r.t. pose x/y are 0
+                let domega_dpos = 0.0; // omega only depends on theta diff and dt
+
+                // Now apply penalty derivatives
+                let vel = (dist / dt) * direction;
+
+                // dv_err/dvel
+                let dv_err_dvel = if vel > p.max_vel_x {
+                    1.0
+                } else if vel < -p.max_vel_x_backwards {
+                    -1.0
+                } else {
+                    0.0
+                };
+
+                // dw_err/domega = sign(omega) * penalty_bound_from_below'(omega)
+                // penalty_bound_from_below(|omega|, max, 0.01):
+                //   if |omega| >= max * 1.01: |omega| - max * 1.01 → d/d|omega| = 1
+                //   if |omega| <= max: 0
+                //   else: quadratic
+                let omega = angle_diff / dt;
+                let abs_omega = omega.abs();
+                let dw_err_dabs_omega = if abs_omega >= p.max_vel_theta * 1.01 {
+                    1.0
+                } else if abs_omega <= p.max_vel_theta {
+                    0.0
+                } else {
+                    let t = (abs_omega - p.max_vel_theta) / (p.max_vel_theta * 0.01);
+                    t * t
+                };
+                let dw_err_domega = if omega.abs() < 1e-15 {
+                    0.0
+                } else {
+                    dw_err_dabs_omega * omega.signum()
+                };
+
+                // Fill Jacobian columns for x1, y1, x2, y2, dt
+                // Map pose indices to global parameter indices
+                if p.idx_start > 0 && p.idx_start < poses.len() - 1 {
+                    let fpi = p.idx_start - 1; // free pose index
+                    let col_x1 = fpi * 2;
+                    let col_y1 = fpi * 2 + 1;
+                    if col_x1 < n_params { jac[col_x1 * n_residuals + 0] = dv_err_dvel * dvel_dx1; }
+                    if col_y1 < n_params { jac[col_y1 * n_residuals + 0] = dv_err_dvel * dvel_dy1; }
+                    // omega column: w_err[1] doesn't depend on x1 or y1
+                    if col_x1 < n_params { jac[col_x1 * n_residuals + 1] = dw_err_domega * domega_dpos; }
+                    if col_y1 < n_params { jac[col_y1 * n_residuals + 1] = dw_err_domega * domega_dpos; }
+                }
+                if p.idx_end > 0 && p.idx_end < poses.len() - 1 {
+                    let fpn = p.idx_end - 1;
+                    let col_x2 = fpn * 2;
+                    let col_y2 = fpn * 2 + 1;
+                    if col_x2 < n_params { jac[col_x2 * n_residuals + 0] = dv_err_dvel * dvel_dx2; }
+                    if col_y2 < n_params { jac[col_y2 * n_residuals + 0] = dv_err_dvel * dvel_dy2; }
+                    if col_x2 < n_params { jac[col_x2 * n_residuals + 1] = dw_err_domega * domega_dpos; }
+                    if col_y2 < n_params { jac[col_y2 * n_residuals + 1] = dw_err_domega * domega_dpos; }
+                }
+                // dt column
+                if p.idx_timediff + (if p.idx_end == 0 && p.idx_start == 0 { 0 } else { 0 }) < n_params {
+                    // time diff is at global index td_offset + idx_timediff
+                    // We don't have td_offset here. Let's use a different approach:
+                    // The time diff index in free_pose mapping:
+                    // free_pose for pose i (i in 1..n-1) is at free_pose[i-1]
+                    // time diffs start at td_offset = 2*(n-3) (for n poses, n-3 free poses, each with 2 params)
+                    // Actually, we don't know td_offset. Let me compute it:
+                    let n_poses = poses.len();
+                    let n_free_poses = if n_poses > 2 { n_poses - 3 } else { 0 };
+                    let td_offset = 2 * n_free_poses;
+                    let global_td_idx = td_offset + p.idx_timediff;
+                    if global_td_idx < n_params {
+                        jac[global_td_idx * n_residuals + 0] = dv_err_dvel * dvel_dt;
+                        jac[global_td_idx * n_residuals + 1] = dw_err_domega * dw_err_dabs_omega / dt.abs().max(1e-10);
+                    }
                 }
                 true
             }

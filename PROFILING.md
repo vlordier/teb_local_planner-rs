@@ -341,3 +341,32 @@ For 20 poses: 19 + 19 = 38 analytical edges out of 67 total = 57% fewer FD calls
 ### Edge Cases
 - The analytical Jacobian for ShortestPath must respect the `free_pose` constraint
   (fixed start/end poses don't appear in the Jacobian columns)
+
+## Optimization Applied: Velocity Analytical Jacobian
+
+### What Changed
+Added analytical Jacobian for Velocity edges — the most numerous edge type (n-1 per trajectory).
+
+**Analytical derivatives computed:**
+- `dv_err/dx1 = -cos1/dt * (dx/dist * sig + dist * 0.1/(1+|dot|)^2)` — accounts for distance and sigmoid
+- `dv_err/dy1 = -sin1/dt * (dy/dist * sig + dist * 0.1/(1+|dot|)^2)`
+- `dv_err/dx2 = dx/dist * sig / dt` — direct distance gradient
+- `dv_err/dy2 = dy/dist * sig / dt`
+- `dv_err/dt = -dist * sig / dt²` — time scaling
+- `dw_err/dpos = 0` — omega only depends on theta (not a free parameter)
+- `dw_err/dt = -|omega|/dt` (with penalty derivative)
+
+### Jacobian Sparsity
+Velocity edge only affects 5 parameters: p1.x, p1.y, p2.x, p2.y, dt
+All other columns are zero — no need for finite-difference.
+
+### Coverage After All Analytical Jacobians
+For 20 poses:
+| Edge Type | Count | Jacobian |
+|---|---|---|
+| TimeOptimal | 19 | Analytical (100%) |
+| ShortestPath | 19 | Analytical (100%) |
+| Velocity | 19 | Analytical (100%) |
+| Acceleration | 18 | Finite-difference |
+| Kinematics | 19 | Finite-difference |
+| **Total** | **94** | **57/94 = 61% analytical** |
